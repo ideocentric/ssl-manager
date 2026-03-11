@@ -12,10 +12,22 @@ A Flask-based web application for managing SSL certificate lifecycle — from RS
 - Color-coded expiration tracking (green → yellow → orange → red)
 - Download certificates in multiple formats:
   - **Full Chain PEM** — private key + signed cert + intermediates in one file
-  - **Component PEMs (ZIP)** — individual PEM files plus a combined fullchain
+  - **Component PEMs (ZIP)** — individual PEM files ready for Apache2 / nginx deployment (see below)
   - **PKCS#12 / PFX** — password-protected bundle (`.p12`)
   - **JKS** — Java KeyStore with configurable password and alias (`.jks`)
   - **P7B** — certificate chain bundle, no private key (`.p7b`, requires `openssl` in PATH)
+
+### Component ZIP contents
+
+| File                | Contents                                      | Deployment use                                                    |
+|---------------------|-----------------------------------------------|-------------------------------------------------------------------|
+| `private_key.pem`   | RSA private key                               | nginx `ssl_certificate_key` / Apache `SSLCertificateKeyFile`      |
+| `certificate.pem`   | Signed certificate only                       | Inspection / verification                                         |
+| `chain.pem`         | Intermediates concatenated (no cert, no key)  | Apache `SSLCACertificateFile`, or copy files to `/etc/pki/certs/` |
+| `fullchain.pem`     | Signed cert + intermediates (no private key)  | nginx `ssl_certificate` / Apache `SSLCertificateFile` (2.4.8+)    |
+| `certificate.csr`   | Original CSR                                  | Records                                                           |
+
+> The **Full Chain PEM** single-file download (`domain-fullchain.pem`) includes the private key as well and is intended for tools that require everything in one file (e.g. HAProxy, some load balancers).
 
 ---
 
@@ -179,10 +191,10 @@ ssl-manager/
 
 ## Dependencies
 
-| Package | Purpose |
-|---|---|
-| Flask | Web framework |
-| Flask-SQLAlchemy | ORM / SQLite persistence |
-| cryptography | RSA key gen, CSR, x509 parsing, PKCS#12 |
-| pyjks | Java KeyStore (JKS) creation |
+| Package            | Purpose                                    |
+|--------------------|--------------------------------------------|
+| Flask              | Web framework                              |
+| Flask-SQLAlchemy   | ORM / SQLite persistence                   |
+| cryptography       | RSA key gen, CSR, x509 parsing, PKCS#12    |
+| pyjks              | Java KeyStore (JKS) creation               |
 | openssl (system) | P7B/PKCS#7 bundle generation |

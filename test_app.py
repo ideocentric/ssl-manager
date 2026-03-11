@@ -349,11 +349,11 @@ class TestCreateComponentsZip:
         assert "certificate.pem" in names
         assert "fullchain.pem" in names
 
-    def test_fullchain_contains_key_and_cert(self, signed_cert_pem, key_pem):
+    def test_fullchain_contains_cert_not_key(self, signed_cert_pem, key_pem):
         buf = create_components_zip("example.com", signed_cert_pem, key_pem, [])
         with ZipFile(buf) as zf:
             fullchain = zf.read("fullchain.pem").decode()
-        assert "PRIVATE KEY" in fullchain
+        assert "PRIVATE KEY" not in fullchain
         assert "CERTIFICATE" in fullchain
 
     def test_intermediates_included(self, signed_cert_pem, key_pem):
@@ -362,7 +362,7 @@ class TestCreateComponentsZip:
         buf = create_components_zip("example.com", signed_cert_pem, key_pem, [inter_pem])
         with ZipFile(buf) as zf:
             names = zf.namelist()
-        assert "intermediate_1.pem" in names
+        assert "chain.pem" in names
 
     def test_csr_included_when_provided(self, signed_cert_pem, key_pem):
         _, csr_pem = generate_key_and_csr("x.com", [], 1024, "", "", "", "", "", "")
@@ -381,7 +381,7 @@ class TestCreateComponentsZip:
         buf = create_components_zip("example.com", signed_cert_pem, key_pem, ["", "  "])
         with ZipFile(buf) as zf:
             names = zf.namelist()
-        assert "intermediate_1.pem" not in names
+        assert "chain.pem" not in names
 
 
 # ---------------------------------------------------------------------------
