@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 from datetime import datetime, timezone
+from functools import wraps
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -16,7 +17,12 @@ from flask import (
     send_file,
     url_for,
 )
+from flask_login import (
+    LoginManager, UserMixin, current_user,
+    login_required, login_user, logout_user,
+)
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -25,16 +31,59 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///ssl_manager.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL", "sqlite:///ssl_manager.db"
+)
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "ssl-manager-secret-key-change-in-prod")
 
 db = SQLAlchemy(app)
 
+login_manager = LoginManager(app)
+login_manager.login_view = "login"
+login_manager.login_message = "Please log in to access this page."
+login_manager.login_message_category = "warning"
+
 
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
+class User(db.Model, UserMixin):
+    __tablename__ = "user"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    username      = db.Column(db.String(64), unique=True, nullable=False)
+    email         = db.Column(db.String(256), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
+    role          = db.Column(db.String(16), default="user", nullable=False)  # superadmin | user
+    active        = db.Column(db.Boolean, default=True, nullable=False)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Flask-Login requires is_active; route it to our column
+    @property
+    def is_active(self):
+        return self.active
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def is_superadmin(self) -> bool:
+        return self.role == "superadmin"
+
+
+@login_manager.user_loader
+def load_user(user_id: str):
+    return User.query.get(int(user_id))
+
+
+def _superadmin_count() -> int:
+    return User.query.filter_by(role="superadmin", active=True).count()
+
 
 class Settings(db.Model):
     __tablename__ = "settings"
@@ -370,23 +419,236 @@ def get_intermediates_ordered():
 
 
 # ---------------------------------------------------------------------------
+# Auth decorator
+# ---------------------------------------------------------------------------
+
+def superadmin_required(f):
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if not current_user.is_superadmin:
+            flash("Superadmin access required.", "error")
+            return redirect(url_for("certificates"))
+        return f(*args, **kwargs)
+    decorated.__name__ = f.__name__
+    return decorated
+
+
+# ---------------------------------------------------------------------------
+# Before-request hook
+# ---------------------------------------------------------------------------
+
+@app.before_request
+def first_run_check():
+    """Redirect to setup page if no users exist yet."""
+    if request.endpoint in (None, "setup", "login", "logout", "static"):
+        return
+    if User.query.count() == 0:
+        return redirect(url_for("setup"))
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 @app.route("/")
+@login_required
 def index():
     return redirect(url_for("certificates"))
+
+
+# ---- Auth routes ----
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup():
+    """First-run setup — only accessible when no users exist."""
+    if User.query.count() > 0:
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        email    = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+        confirm  = request.form.get("confirm_password", "")
+        error = None
+        if not username:
+            error = "Username is required."
+        elif not email:
+            error = "Email is required."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != confirm:
+            error = "Passwords do not match."
+        if error:
+            flash(error, "error")
+            return render_template("setup.html")
+        user = User(username=username, email=email, role="superadmin")
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        login_user(user)
+        flash(f"Welcome, {username}! Your admin account has been created.", "success")
+        return redirect(url_for("certificates"))
+    return render_template("setup.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("certificates"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        remember = bool(request.form.get("remember"))
+        user = User.query.filter_by(username=username).first()
+        if user is None or not user.check_password(password):
+            flash("Invalid username or password.", "error")
+            return render_template("login.html")
+        if not user.active:
+            flash("This account has been deactivated.", "error")
+            return render_template("login.html")
+        login_user(user, remember=remember)
+        next_page = request.args.get("next")
+        return redirect(next_page or url_for("certificates"))
+    return render_template("login.html")
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    flash("You have been logged out.", "success")
+    return redirect(url_for("login"))
+
+
+# ---- User management routes ----
+
+@app.route("/users")
+@superadmin_required
+def users():
+    all_users = User.query.order_by(User.created_at.asc()).all()
+    return render_template("users.html", users=all_users)
+
+
+@app.route("/users/new", methods=["GET", "POST"])
+@superadmin_required
+def user_new():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        email    = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+        confirm  = request.form.get("confirm_password", "")
+        role     = request.form.get("role", "user")
+        if role not in ("superadmin", "user"):
+            role = "user"
+        error = None
+        if not username:
+            error = "Username is required."
+        elif not email:
+            error = "Email is required."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != confirm:
+            error = "Passwords do not match."
+        elif User.query.filter_by(username=username).first():
+            error = f"Username '{username}' is already taken."
+        elif User.query.filter_by(email=email).first():
+            error = f"Email '{email}' is already registered."
+        if error:
+            flash(error, "error")
+            return render_template("user_form.html", user=None, roles=["superadmin", "user"])
+        user = User(username=username, email=email, role=role)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        flash(f"User '{username}' created.", "success")
+        return redirect(url_for("users"))
+    return render_template("user_form.html", user=None, roles=["superadmin", "user"])
+
+
+@app.route("/users/<int:user_id>/edit")
+@superadmin_required
+def user_edit(user_id):
+    user = User.query.get_or_404(user_id)
+    return render_template("user_form.html", user=user, roles=["superadmin", "user"])
+
+
+@app.route("/users/<int:user_id>/update", methods=["POST"])
+@superadmin_required
+def user_update(user_id):
+    user = User.query.get_or_404(user_id)
+    username = request.form.get("username", "").strip()
+    email    = request.form.get("email", "").strip()
+    role     = request.form.get("role", "user")
+    active   = request.form.get("active") == "1"
+    password = request.form.get("password", "")
+    confirm  = request.form.get("confirm_password", "")
+    if role not in ("superadmin", "user"):
+        role = "user"
+    error = None
+    if not username:
+        error = "Username is required."
+    elif not email:
+        error = "Email is required."
+    else:
+        dup_user  = User.query.filter(User.username == username, User.id != user_id).first()
+        dup_email = User.query.filter(User.email == email,     User.id != user_id).first()
+        if dup_user:
+            error = f"Username '{username}' is already taken."
+        elif dup_email:
+            error = f"Email '{email}' is already registered."
+    # Prevent removing the last active superadmin
+    if not error and (role != "superadmin" or not active):
+        if user.role == "superadmin" and user.active:
+            if _superadmin_count() <= 1:
+                error = "Cannot demote or deactivate the last active superadmin."
+    if error:
+        flash(error, "error")
+        return render_template("user_form.html", user=user, roles=["superadmin", "user"])
+    if password:
+        if len(password) < 8:
+            flash("New password must be at least 8 characters.", "error")
+            return render_template("user_form.html", user=user, roles=["superadmin", "user"])
+        if password != confirm:
+            flash("Passwords do not match.", "error")
+            return render_template("user_form.html", user=user, roles=["superadmin", "user"])
+        user.set_password(password)
+    user.username = username
+    user.email    = email
+    user.role     = role
+    user.active   = active
+    db.session.commit()
+    flash(f"User '{username}' updated.", "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/users/<int:user_id>/delete", methods=["POST"])
+@superadmin_required
+def user_delete(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash("You cannot delete your own account.", "error")
+        return redirect(url_for("users"))
+    if user.role == "superadmin" and _superadmin_count() <= 1:
+        flash("Cannot delete the last superadmin.", "error")
+        return redirect(url_for("users"))
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+    flash(f"User '{username}' deleted.", "success")
+    return redirect(url_for("users"))
 
 
 # ---- Certificates ----
 
 @app.route("/certificates")
+@login_required
 def certificates():
     certs = Certificate.query.order_by(Certificate.created_at.desc()).all()
     return render_template("certificates.html", certs=certs)
 
 
 @app.route("/certificates/new", methods=["GET", "POST"])
+@login_required
 def certificate_new():
     settings = get_settings()
     if request.method == "POST":
@@ -441,6 +703,7 @@ def certificate_new():
 
 
 @app.route("/certificates/<int:cert_id>")
+@login_required
 def certificate_detail(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     intermediates = get_intermediates_ordered()
@@ -448,6 +711,7 @@ def certificate_detail(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/upload", methods=["POST"])
+@login_required
 def certificate_upload(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     signed_pem = request.form.get("signed_cert_pem", "").strip()
@@ -473,6 +737,7 @@ def certificate_upload(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/delete", methods=["POST"])
+@login_required
 def certificate_delete(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     domain = cert.domain
@@ -485,6 +750,7 @@ def certificate_delete(cert_id):
 # ---- Certificate Downloads ----
 
 @app.route("/certificates/<int:cert_id>/download/csr")
+@login_required
 def download_csr(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.csr_pem:
@@ -500,6 +766,7 @@ def download_csr(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/download/fullchain")
+@login_required
 def download_fullchain(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
@@ -522,6 +789,7 @@ def download_fullchain(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/download/components")
+@login_required
 def download_components(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
@@ -547,6 +815,7 @@ def download_components(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/download/pkcs12", methods=["POST"])
+@login_required
 def download_pkcs12(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
@@ -574,6 +843,7 @@ def download_pkcs12(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/download/jks", methods=["POST"])
+@login_required
 def download_jks(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
@@ -602,6 +872,7 @@ def download_jks(cert_id):
 
 
 @app.route("/certificates/<int:cert_id>/download/p7b")
+@login_required
 def download_p7b(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
@@ -628,6 +899,7 @@ def download_p7b(cert_id):
 # ---- Settings ----
 
 @app.route("/settings", methods=["GET", "POST"])
+@login_required
 def settings():
     s = get_settings()
     if request.method == "POST":
@@ -650,12 +922,14 @@ def settings():
 # ---- Intermediates ----
 
 @app.route("/intermediates")
+@login_required
 def intermediates():
     certs = get_intermediates_ordered()
     return render_template("intermediates.html", certs=certs)
 
 
 @app.route("/intermediates/new", methods=["POST"])
+@login_required
 def intermediate_new():
     name = request.form.get("name", "").strip()
     pem_data = request.form.get("pem_data", "").strip()
@@ -685,17 +959,20 @@ def intermediate_new():
 
 
 @app.route("/intermediates/new-form")
+@login_required
 def intermediate_form_new():
     return render_template("intermediate_form.html", cert=None, action=url_for("intermediate_new"))
 
 
 @app.route("/intermediates/<int:ic_id>/edit")
+@login_required
 def intermediate_edit(ic_id):
     ic = IntermediateCert.query.get_or_404(ic_id)
     return render_template("intermediate_form.html", cert=ic, action=url_for("intermediate_update", ic_id=ic_id))
 
 
 @app.route("/intermediates/<int:ic_id>/update", methods=["POST"])
+@login_required
 def intermediate_update(ic_id):
     ic = IntermediateCert.query.get_or_404(ic_id)
     name = request.form.get("name", "").strip()
@@ -727,6 +1004,7 @@ def intermediate_update(ic_id):
 
 
 @app.route("/intermediates/<int:ic_id>/delete", methods=["POST"])
+@login_required
 def intermediate_delete(ic_id):
     ic = IntermediateCert.query.get_or_404(ic_id)
     name = ic.name
@@ -737,6 +1015,7 @@ def intermediate_delete(ic_id):
 
 
 @app.route("/intermediates/reorder", methods=["POST"])
+@login_required
 def intermediate_reorder():
     data = request.get_json()
     if not data or not isinstance(data, list):

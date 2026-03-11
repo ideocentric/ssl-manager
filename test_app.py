@@ -26,6 +26,7 @@ from app import (
     Certificate,
     IntermediateCert,
     Settings,
+    User,
     create_components_zip,
     create_pkcs12,
     db,
@@ -97,6 +98,10 @@ def _key_pem(key):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+TEST_ADMIN_USERNAME = "admin"
+TEST_ADMIN_PASSWORD = "testpassword123"
+
+
 @pytest.fixture(scope="session")
 def rsa_key():
     """Reusable RSA key (1024-bit for speed)."""
@@ -140,7 +145,10 @@ def flask_app():
 
     with app_module.app.app_context():
         db.create_all()
+        admin = User(username=TEST_ADMIN_USERNAME, email="admin@test.com", role="superadmin")
+        admin.set_password(TEST_ADMIN_PASSWORD)
         db.session.add(Settings(key_size=2048))
+        db.session.add(admin)
         db.session.commit()
         yield app_module.app
         db.drop_all()
@@ -148,18 +156,41 @@ def flask_app():
 
 @pytest.fixture(autouse=True)
 def clean_db(flask_app):
-    """Truncate all tables and re-seed Settings after each test."""
+    """Truncate all tables and re-seed Settings + admin user after each test."""
     yield
     with flask_app.app_context():
         for table in reversed(db.metadata.sorted_tables):
             db.session.execute(table.delete())
+        admin = User(username=TEST_ADMIN_USERNAME, email="admin@test.com", role="superadmin")
+        admin.set_password(TEST_ADMIN_PASSWORD)
         db.session.add(Settings(key_size=2048))
+        db.session.add(admin)
         db.session.commit()
+    # Clear Flask-Login's cached user from the persistent app context's g object.
+    # Because flask_app fixture holds an app_context open for the whole session,
+    # Flask reuses it for all requests, making g._login_user persist across tests.
+    from flask import g as flask_g
+    from flask.globals import _cv_app
+    app_ctx = _cv_app.get(None)
+    if app_ctx is not None and hasattr(app_ctx, "g"):
+        app_ctx.g.pop("_login_user", None)
 
 
 @pytest.fixture()
 def client(flask_app):
-    return flask_app.test_client()
+    """Test client pre-authenticated as the test superadmin."""
+    with flask_app.test_client() as c:
+        c.post("/login", data={
+            "username": TEST_ADMIN_USERNAME,
+            "password": TEST_ADMIN_PASSWORD,
+        }, follow_redirects=True)
+        yield c
+
+
+@pytest.fixture()
+def anon_client(flask_app):
+    """Unauthenticated test client."""
+    return flask_app.test_client(use_cookies=True)
 
 
 @pytest.fixture()
@@ -842,3 +873,154 @@ class TestIntermediateReorderRoute:
                            data=json.dumps({"not": "a list"}),
                            content_type="application/json")
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Auth and user management tests
+# ---------------------------------------------------------------------------
+
+class TestSetupRoute:
+    def test_setup_redirects_when_users_exist(self, anon_client):
+        resp = anon_client.get("/setup", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_setup_accessible_when_no_users(self, flask_app, anon_client):
+        with flask_app.app_context():
+            for table in reversed(db.metadata.sorted_tables):
+                db.session.execute(table.delete())
+            db.session.commit()
+        resp = anon_client.get("/setup")
+        assert resp.status_code == 200
+        assert b"Initial Setup" in resp.data
+
+    def test_setup_creates_superadmin(self, flask_app, anon_client):
+        with flask_app.app_context():
+            for table in reversed(db.metadata.sorted_tables):
+                db.session.execute(table.delete())
+            db.session.commit()
+        resp = anon_client.post("/setup", data={
+            "username": "founder",
+            "email": "founder@example.com",
+            "password": "strongpass1",
+            "confirm_password": "strongpass1",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        with flask_app.app_context():
+            user = User.query.filter_by(username="founder").first()
+            assert user is not None
+            assert user.role == "superadmin"
+
+
+class TestLoginLogout:
+    def test_login_valid(self, anon_client):
+        resp = anon_client.post("/login", data={
+            "username": TEST_ADMIN_USERNAME,
+            "password": TEST_ADMIN_PASSWORD,
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+    def test_login_wrong_password(self, anon_client):
+        resp = anon_client.post("/login", data={
+            "username": TEST_ADMIN_USERNAME,
+            "password": "wrongpassword",
+        }, follow_redirects=True)
+        assert b"Invalid username or password" in resp.data
+
+    def test_login_unknown_user(self, anon_client):
+        resp = anon_client.post("/login", data={
+            "username": "nobody",
+            "password": "whatever123",
+        }, follow_redirects=True)
+        assert b"Invalid username or password" in resp.data
+
+    def test_unauthenticated_redirects_to_login(self, anon_client):
+        resp = anon_client.get("/certificates", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "login" in resp.headers["Location"]
+
+    def test_logout(self, client):
+        resp = client.get("/logout", follow_redirects=True)
+        assert b"logged out" in resp.data.lower()
+
+
+class TestUserManagement:
+    def test_users_list_accessible_to_superadmin(self, client):
+        resp = client.get("/users")
+        assert resp.status_code == 200
+        assert TEST_ADMIN_USERNAME.encode() in resp.data
+
+    def test_users_list_forbidden_to_regular_user(self, flask_app, anon_client):
+        # Create a regular user and log in as them
+        with flask_app.app_context():
+            u = User(username="regularuser", email="regular@test.com", role="user")
+            u.set_password("testpassword123")
+            db.session.add(u)
+            db.session.commit()
+        anon_client.post("/login", data={"username": "regularuser", "password": "testpassword123"})
+        resp = anon_client.get("/users", follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"Superadmin access required" in resp.data
+
+    def test_create_user(self, client):
+        resp = client.post("/users/new", data={
+            "username": "newuser",
+            "email": "newuser@example.com",
+            "password": "newpassword1",
+            "confirm_password": "newpassword1",
+            "role": "user",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"newuser" in resp.data
+
+    def test_create_user_duplicate_username(self, client):
+        resp = client.post("/users/new", data={
+            "username": TEST_ADMIN_USERNAME,
+            "email": "other@example.com",
+            "password": "newpassword1",
+            "confirm_password": "newpassword1",
+            "role": "user",
+        }, follow_redirects=True)
+        assert b"already taken" in resp.data
+
+    def test_create_user_password_mismatch(self, client):
+        resp = client.post("/users/new", data={
+            "username": "mismatch",
+            "email": "mismatch@example.com",
+            "password": "password123",
+            "confirm_password": "different123",
+            "role": "user",
+        }, follow_redirects=True)
+        assert b"do not match" in resp.data
+
+    def test_delete_user(self, flask_app, client):
+        with flask_app.app_context():
+            u = User(username="todelete", email="todelete@example.com", role="user")
+            u.set_password("testpassword123")
+            db.session.add(u)
+            db.session.commit()
+            uid = u.id
+        resp = client.post(f"/users/{uid}/delete", follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"deleted" in resp.data.lower()
+        with flask_app.app_context():
+            assert User.query.filter_by(username="todelete").first() is None
+
+    def test_cannot_delete_last_superadmin(self, flask_app, client):
+        with flask_app.app_context():
+            admin = User.query.filter_by(username=TEST_ADMIN_USERNAME).first()
+            uid = admin.id
+        resp = client.post(f"/users/{uid}/delete", follow_redirects=True)
+        assert b"last superadmin" in resp.data.lower() or b"own account" in resp.data.lower()
+
+    def test_cannot_demote_last_superadmin(self, flask_app, client):
+        with flask_app.app_context():
+            admin = User.query.filter_by(username=TEST_ADMIN_USERNAME).first()
+            uid = admin.id
+        resp = client.post(f"/users/{uid}/update", data={
+            "username": TEST_ADMIN_USERNAME,
+            "email": "admin@test.com",
+            "role": "user",
+            "active": "1",
+        }, follow_redirects=True)
+        assert b"last active superadmin" in resp.data.lower()

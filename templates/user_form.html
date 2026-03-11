@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-7 col-lg-6">
+
+    <div class="d-flex align-items-center mb-3">
+      <a href="{{ url_for('users') }}" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h4 class="mb-0">
+        {% if user %}
+          <i class="bi bi-person-gear me-2"></i>Edit User
+        {% else %}
+          <i class="bi bi-person-plus me-2"></i>Add User
+        {% endif %}
+      </h4>
+    </div>
+
+    <div class="card shadow-sm section-card">
+      <div class="card-body p-4">
+        <form method="post"
+              action="{{ url_for('user_update', user_id=user.id) if user else url_for('user_new') }}">
+
+          <div class="mb-3">
+            <label class="form-label" for="username">Username</label>
+            <input id="username" name="username" type="text"
+                   class="form-control" required
+                   value="{{ user.username if user else request.form.get('username', '') }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="email">Email</label>
+            <input id="email" name="email" type="email"
+                   class="form-control" required
+                   value="{{ user.email if user else request.form.get('email', '') }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="role">Role</label>
+            <select id="role" name="role" class="form-select">
+              {% for r in roles %}
+              <option value="{{ r }}"
+                {% if user and user.role == r %}selected
+                {% elif not user and r == 'user' %}selected
+                {% endif %}>
+                {{ r }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {% if user %}
+          <div class="mb-4">
+            <label class="form-label">Status</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="active" name="active"
+                     value="1" {% if user.active %}checked{% endif %}>
+              <label class="form-check-label" for="active">Active</label>
+            </div>
+          </div>
+          {% endif %}
+
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-check-circle me-1"></i>
+            {{ 'Save Changes' if user else 'Create User' }}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {% if user %}
+    <div class="card shadow-sm section-card">
+      <div class="card-header"><strong>Change Password</strong></div>
+      <div class="card-body p-4">
+        <form method="post" action="{{ url_for('user_update', user_id=user.id) }}">
+          {# Re-send current username/email/role/active so the update handler
+             doesn't see them as blank when only changing the password #}
+          <input type="hidden" name="username" value="{{ user.username }}">
+          <input type="hidden" name="email"    value="{{ user.email }}">
+          <input type="hidden" name="role"     value="{{ user.role }}">
+          <input type="hidden" name="active"   value="{{ '1' if user.active else '0' }}">
+          <div class="mb-3">
+            <label class="form-label" for="new_password">New Password</label>
+            <input id="new_password" name="password" type="password"
+                   class="form-control" minlength="8">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="confirm_password">Confirm Password</label>
+            <input id="confirm_password" name="confirm_password" type="password"
+                   class="form-control" minlength="8">
+          </div>
+          <button type="submit" class="btn btn-outline-secondary w-100">
+            <i class="bi bi-key me-1"></i>Update Password
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

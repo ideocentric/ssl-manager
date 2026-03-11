@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-sm-9 col-md-6 col-lg-5">
+    <div class="card shadow-sm border-primary">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-person-plus-fill me-2"></i>Initial Setup</h5>
+      </div>
+      <div class="card-body p-4">
+        <p class="text-muted mb-4">
+          No users exist yet. Create the first superadmin account to get started.
+        </p>
+        <form method="post" action="{{ url_for('setup') }}">
+          <div class="mb-3">
+            <label class="form-label" for="username">Username</label>
+            <input id="username" name="username" type="text"
+                   class="form-control" autofocus required
+                   value="{{ request.form.get('username', '') }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="email">Email</label>
+            <input id="email" name="email" type="email"
+                   class="form-control" required
+                   value="{{ request.form.get('email', '') }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password">Password</label>
+            <input id="password" name="password" type="password"
+                   class="form-control" required minlength="8">
+            <div class="form-text">Minimum 8 characters.</div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label" for="confirm_password">Confirm Password</label>
+            <input id="confirm_password" name="confirm_password" type="password"
+                   class="form-control" required minlength="8">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-check-circle me-1"></i>Create Admin Account
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

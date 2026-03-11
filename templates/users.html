@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-people-fill me-2"></i>Users</h4>
+  <a href="{{ url_for('user_new') }}" class="btn btn-primary btn-sm">
+    <i class="bi bi-person-plus me-1"></i>Add User
+  </a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            {{ u.username }}
+            {% if u.id == current_user.id %}
+            <span class="badge bg-info text-dark ms-1">you</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ u.email }}</td>
+          <td>
+            {% if u.is_superadmin %}
+            <span class="badge bg-warning text-dark">superadmin</span>
+            {% else %}
+            <span class="badge bg-secondary">user</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.active %}
+            <span class="badge bg-success">active</span>
+            {% else %}
+            <span class="badge bg-danger">inactive</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+          <td class="text-end">
+            <a href="{{ url_for('user_edit', user_id=u.id) }}"
+               class="btn btn-outline-secondary btn-sm me-1">
+              <i class="bi bi-pencil"></i>
+            </a>
+            {% if u.id != current_user.id %}
+            <form method="post" action="{{ url_for('user_delete', user_id=u.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('Delete user {{ u.username }}?')">
+              <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">No users found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

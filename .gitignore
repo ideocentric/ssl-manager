@@ -120,3 +120,5 @@ dev-ca/
 
 # Logs
 *.log
+
+.claude
