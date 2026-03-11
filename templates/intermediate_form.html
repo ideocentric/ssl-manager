@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white">
+        <h5 class="mb-0">
+          {% if cert %}
+            <i class="bi bi-pencil-fill me-2"></i>Edit Chain Certificate
+          {% else %}
+            <i class="bi bi-plus-circle-fill me-2"></i>Add Chain Certificate
+          {% endif %}
+        </h5>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info d-flex align-items-start">
+          <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+          <div>
+            Add intermediate CA and root CA certificates here. They will be included in certificate chain downloads
+            for all certificates managed in this application.
+          </div>
+        </div>
+
+        <form method="post" action="{{ action }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Certificate Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required
+                   value="{{ cert.name if cert else '' }}"
+                   placeholder="e.g., My Intermediate CA, Let's Encrypt R3, DigiCert CA" />
+            <div class="form-text">A descriptive name to identify this certificate.</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Chain Order</label>
+            <input type="number" name="order" class="form-control" style="max-width:120px;"
+                   value="{{ cert.order if cert else 0 }}" min="0" />
+            <div class="form-text">Lower numbers appear first in the chain (closer to the leaf certificate). Typically Intermediate=0, Root=1.</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Certificate PEM Data <span class="text-danger">*</span></label>
+            <textarea name="pem_data" class="form-control font-monospace" rows="16" required
+                      placeholder="-----BEGIN CERTIFICATE-----&#10;MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw&#10;...&#10;-----END CERTIFICATE-----"
+                      style="font-size:0.78rem;">{{ cert.pem_data if cert else '' }}</textarea>
+            <div class="form-text">Paste the full PEM-encoded certificate including the <code>-----BEGIN CERTIFICATE-----</code> and <code>-----END CERTIFICATE-----</code> markers.</div>
+          </div>
+
+          {% if cert and cert.parsed_cert %}
+          <div class="card bg-light mb-3">
+            <div class="card-body py-2">
+              <h6 class="mb-2 text-muted small text-uppercase">Parsed Certificate Info</h6>
+              <dl class="row mb-0 small">
+                <dt class="col-sm-3">Subject CN</dt>
+                <dd class="col-sm-9"><code>{{ cert.subject }}</code></dd>
+                <dt class="col-sm-3">Type</dt>
+                <dd class="col-sm-9">
+                  {% if cert.is_root %}
+                    <span class="badge bg-dark">Root CA</span>
+                  {% else %}
+                    <span class="badge bg-secondary">Intermediate CA</span>
+                  {% endif %}
+                </dd>
+                <dt class="col-sm-3">Expiry</dt>
+                <dd class="col-sm-9">{{ cert.expiry_date.strftime('%Y-%m-%d') if cert.expiry_date else 'Unknown' }}</dd>
+              </dl>
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="mt-4">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-floppy-fill me-2"></i>{{ 'Save Changes' if cert else 'Add Certificate' }}
+            </button>
+            <a href="{{ url_for('intermediates') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+services:
+  ssl-manager:
+    build: .
+    ports:
+      - "5001:5000"
+    volumes:
+      - ssl-manager-db:/app/instance
+    environment:
+      - SECRET_KEY=change-me-in-production
+    restart: unless-stopped
+
+volumes:
+  ssl-manager-db:

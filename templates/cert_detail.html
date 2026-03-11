@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>
+    <i class="bi bi-file-earmark-lock2 me-2"></i>{{ cert.domain }}
+    {% set label = cert.status_label %}
+    {% if label == 'active' %}
+      <span class="badge bg-success ms-2" style="font-size:0.6em;vertical-align:middle;">Active</span>
+    {% elif label == 'expired' %}
+      <span class="badge bg-danger ms-2" style="font-size:0.6em;vertical-align:middle;">Expired</span>
+    {% else %}
+      <span class="badge bg-warning text-dark ms-2" style="font-size:0.6em;vertical-align:middle;">Pending Signing</span>
+    {% endif %}
+  </h2>
+  <a href="{{ url_for('certificates') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+</div>
+
+<!-- Section 1: Certificate Info -->
+<div class="card shadow-sm section-card">
+  <div class="card-header"><h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Certificate Information</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <dl class="mb-0">
+          <dt class="text-muted small">Domain (CN)</dt>
+          <dd class="fw-semibold">{{ cert.domain }}</dd>
+          <dt class="text-muted small">Key Size</dt>
+          <dd>RSA-{{ cert.key_size }}</dd>
+          <dt class="text-muted small">Created</dt>
+          <dd>{{ cert.created_at.strftime('%Y-%m-%d %H:%M UTC') if cert.created_at else 'N/A' }}</dd>
+        </dl>
+      </div>
+      <div class="col-md-6">
+        <dl class="mb-0">
+          <dt class="text-muted small">Country</dt>
+          <dd>{{ cert.country or '—' }}</dd>
+          <dt class="text-muted small">State / City</dt>
+          <dd>{{ cert.state or '—' }}{% if cert.state and cert.city %}, {% endif %}{{ cert.city or '' }}</dd>
+          <dt class="text-muted small">Organization</dt>
+          <dd>{{ cert.org_name or '—' }}{% if cert.org_unit %} / {{ cert.org_unit }}{% endif %}</dd>
+          <dt class="text-muted small">Email</dt>
+          <dd>{{ cert.email or '—' }}</dd>
+        </dl>
+      </div>
+      {% set san_list = cert.san_list %}
+      {% if san_list %}
+      <div class="col-12">
+        <dt class="text-muted small">Subject Alternative Names</dt>
+        <dd>
+          {% for san in san_list %}
+            <span class="badge bg-secondary me-1">{{ san }}</span>
+          {% endfor %}
+        </dd>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Section 2: CSR -->
+{% if cert.csr_pem %}
+<div class="card shadow-sm section-card">
+  <div class="card-header"><h6 class="mb-0"><i class="bi bi-file-code me-2"></i>Certificate Signing Request (CSR)</h6></div>
+  <div class="card-body">
+    <div class="alert alert-info d-flex align-items-start mb-3">
+      <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+      <div>Submit this CSR to your Certificate Authority. Once they return the signed certificate PEM, upload it in the section below.</div>
+    </div>
+    <pre class="pem-block">{{ cert.csr_pem }}</pre>
+    <a href="{{ url_for('download_csr', cert_id=cert.id) }}" class="btn btn-outline-primary mt-2">
+      <i class="bi bi-download me-2"></i>Download CSR
+    </a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Section 3: Upload Signed Certificate -->
+{% if cert.status == 'pending_signing' %}
+<div class="card shadow-sm section-card border-warning">
+  <div class="card-header bg-warning bg-opacity-25">
+    <h6 class="mb-0"><i class="bi bi-upload me-2"></i>Upload Signed Certificate</h6>
+  </div>
+  <div class="card-body">
+    <p class="text-muted">Paste the signed certificate PEM you received from your Certificate Authority.</p>
+    <form method="post" action="{{ url_for('certificate_upload', cert_id=cert.id) }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Signed Certificate PEM</label>
+        <textarea name="signed_cert_pem" class="form-control font-monospace" rows="10"
+                  placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                  required style="font-size:0.8rem;"></textarea>
+        <div class="form-text">Paste only the certificate (not the chain). You can manage intermediate certificates in <a href="{{ url_for('intermediates') }}">Chain Certificates</a>.</div>
+      </div>
+      <button type="submit" class="btn btn-success">
+        <i class="bi bi-cloud-upload-fill me-2"></i>Upload Certificate
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- Section 4: Certificate Details (signed) -->
+{% if cert.signed_cert_pem %}
+<div class="card shadow-sm section-card">
+  <div class="card-header"><h6 class="mb-0"><i class="bi bi-patch-check me-2"></i>Signed Certificate Details</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <dt class="text-muted small">Expiry Date</dt>
+        <dd>
+          {% if cert.expiry_date %}
+            {% set days = cert.days_until_expiry %}
+            {% if days is not none %}
+              {% if days < 0 %}
+                <span class="text-danger fw-semibold"><i class="bi bi-x-circle me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d %H:%M UTC') }} <em>(Expired {{ days|abs }} days ago)</em></span>
+              {% elif days < 30 %}
+                <span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d %H:%M UTC') }} <em>({{ days }} days remaining)</em></span>
+              {% elif days < 90 %}
+                <span class="text-warning"><i class="bi bi-clock me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d %H:%M UTC') }} <em>({{ days }} days remaining)</em></span>
+              {% else %}
+                <span class="text-success"><i class="bi bi-check-circle me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d %H:%M UTC') }} <em>({{ days }} days remaining)</em></span>
+              {% endif %}
+            {% endif %}
+          {% else %}
+            <span class="text-muted">N/A</span>
+          {% endif %}
+        </dd>
+      </div>
+    </div>
+    <div class="mt-3">
+      <dt class="text-muted small">Certificate PEM</dt>
+      <pre class="pem-block mt-1">{{ cert.signed_cert_pem }}</pre>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Section 5: Downloads -->
+{% if cert.signed_cert_pem %}
+<div class="card shadow-sm section-card">
+  <div class="card-header"><h6 class="mb-0"><i class="bi bi-download me-2"></i>Downloads</h6></div>
+  <div class="card-body">
+    {% if intermediates %}
+    <div class="alert alert-secondary small mb-3">
+      <i class="bi bi-diagram-3 me-1"></i>
+      Chain will include {{ intermediates|length }} intermediate/root certificate(s) in order.
+    </div>
+    {% endif %}
+
+    <div class="row g-3">
+      <!-- Full Chain PEM -->
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-secondary">
+          <div class="card-body d-flex flex-column">
+            <h6 class="card-title"><i class="bi bi-file-text me-2 text-primary"></i>Full Chain PEM</h6>
+            <p class="card-text text-muted small flex-grow-1">Private key + certificate + intermediates in a single PEM file.</p>
+            <a href="{{ url_for('download_fullchain', cert_id=cert.id) }}" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-download me-1"></i>Download .pem
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Component PEMs ZIP -->
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-secondary">
+          <div class="card-body d-flex flex-column">
+            <h6 class="card-title"><i class="bi bi-file-zip me-2 text-success"></i>Component PEMs (ZIP)</h6>
+            <p class="card-text text-muted small flex-grow-1">Separate PEM files for private key, certificate, intermediates, and fullchain in a ZIP archive.</p>
+            <a href="{{ url_for('download_components', cert_id=cert.id) }}" class="btn btn-outline-success btn-sm">
+              <i class="bi bi-download me-1"></i>Download .zip
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- P7B -->
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-secondary">
+          <div class="card-body d-flex flex-column">
+            <h6 class="card-title"><i class="bi bi-file-binary me-2 text-secondary"></i>P7B (Cert Chain Only)</h6>
+            <p class="card-text text-muted small flex-grow-1">PKCS#7 bundle containing the certificate and chain. Does not include the private key.</p>
+            <a href="{{ url_for('download_p7b', cert_id=cert.id) }}" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-download me-1"></i>Download .p7b
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- PKCS#12 -->
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-warning">
+          <div class="card-body d-flex flex-column">
+            <h6 class="card-title"><i class="bi bi-lock-fill me-2 text-warning"></i>PKCS#12 / PFX</h6>
+            <p class="card-text text-muted small flex-grow-1">Password-protected bundle with private key + certificate chain. Used by IIS, Windows, Java, etc.</p>
+            <form method="post" action="{{ url_for('download_pkcs12', cert_id=cert.id) }}" class="mt-auto">
+              <div class="input-group input-group-sm mb-2">
+                <input type="password" name="password" class="form-control" placeholder="Password (optional)" />
+              </div>
+              <button type="submit" class="btn btn-outline-warning btn-sm w-100">
+                <i class="bi bi-download me-1"></i>Download .p12
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- JKS -->
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-info">
+          <div class="card-body d-flex flex-column">
+            <h6 class="card-title"><i class="bi bi-cup-hot-fill me-2 text-info"></i>Java KeyStore (JKS)</h6>
+            <p class="card-text text-muted small flex-grow-1">Java KeyStore format for Java application servers (Tomcat, Spring Boot, etc.).</p>
+            <form method="post" action="{{ url_for('download_jks', cert_id=cert.id) }}" class="mt-auto">
+              <div class="input-group input-group-sm mb-2">
+                <input type="password" name="password" class="form-control" placeholder="Store password" value="changeit" />
+              </div>
+              <div class="input-group input-group-sm mb-2">
+                <span class="input-group-text">Alias</span>
+                <input type="text" name="alias" class="form-control" value="certificate" placeholder="certificate" />
+              </div>
+              <button type="submit" class="btn btn-outline-info btn-sm w-100">
+                <i class="bi bi-download me-1"></i>Download .jks
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Section 6: Danger Zone -->
+<div class="danger-zone section-card">
+  <h6 class="text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Danger Zone</h6>
+  <p class="text-muted small mb-3">Permanently delete this certificate and its private key. This action cannot be undone.</p>
+  <form method="post" action="{{ url_for('certificate_delete', cert_id=cert.id) }}"
+        onsubmit="return confirm('Permanently delete certificate for {{ cert.domain }}? This cannot be undone.')">
+    <button type="submit" class="btn btn-danger">
+      <i class="bi bi-trash-fill me-2"></i>Delete Certificate
+    </button>
+  </form>
+</div>
+{% endblock %}

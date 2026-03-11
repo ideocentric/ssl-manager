@@ -1,0 +1,122 @@
+# =============================================================================
+# macOS
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon$
+
+# =============================================================================
+# Windows
+# =============================================================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# =============================================================================
+# PyCharm / IntelliJ IDEA
+# =============================================================================
+.idea/
+
+# =============================================================================
+# Python
+# =============================================================================
+
+# Byte-compiled / optimised / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+sdist/
+.eggs/
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# =============================================================================
+# Testing and coverage
+# =============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# =============================================================================
+# Type checkers
+# =============================================================================
+.mypy_cache/
+.dmypy.json
+.pyright/
+.ruff_cache/
+
+# =============================================================================
+# Editors and IDEs (general)
+# =============================================================================
+
+# Visual Studio Code
+.vscode/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+\#*\#
+.#*
+*.elc
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# =============================================================================
+# Secrets and local config
+# =============================================================================
+
+# Never commit credentials or local env overrides
+.env
+.env.*
+*.pem
+*.key
+
+# =============================================================================
+# Miscellaneous
+# =============================================================================
+
+# Compiled documentation
+docs/_build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local dev CA (keys must never be committed)
+dev-ca/
+
+# Logs
+*.log

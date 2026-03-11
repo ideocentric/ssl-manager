@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-diagram-3 me-2"></i>Chain Certificates</h2>
+  <a href="{{ url_for('intermediate_form_new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Add Certificate
+  </a>
+</div>
+
+<div class="alert alert-info d-flex align-items-start mb-4">
+  <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+  <div>
+    <strong>Certificate Chain Order:</strong>
+    Certificates are included in chain order — lower order numbers appear first (closest to the leaf/end-entity certificate).
+    Typically: Intermediate CA first, then Root CA last.
+  </div>
+</div>
+
+{% if certs %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0" id="chain-table">
+      <thead>
+        <tr>
+          <th style="width:60px;">Order</th>
+          <th>Name</th>
+          <th>Subject CN</th>
+          <th>Type</th>
+          <th>Expiry</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ic in certs %}
+        <tr data-id="{{ ic.id }}">
+          <td class="align-middle">
+            <div class="d-flex align-items-center gap-1">
+              <button class="btn btn-sm btn-outline-secondary py-0 px-1 order-up"
+                      data-id="{{ ic.id }}" title="Move up">
+                <i class="bi bi-chevron-up"></i>
+              </button>
+              <span class="order-badge fw-semibold text-center" style="min-width:1.5rem;">{{ ic.order }}</span>
+              <button class="btn btn-sm btn-outline-secondary py-0 px-1 order-down"
+                      data-id="{{ ic.id }}" title="Move down">
+                <i class="bi bi-chevron-down"></i>
+              </button>
+            </div>
+          </td>
+          <td class="align-middle fw-semibold">{{ ic.name }}</td>
+          <td class="align-middle">
+            <code>{{ ic.subject }}</code>
+          </td>
+          <td class="align-middle">
+            {% if ic.is_root %}
+              <span class="badge bg-dark">Root CA</span>
+            {% else %}
+              <span class="badge bg-secondary">Intermediate CA</span>
+            {% endif %}
+          </td>
+          <td class="align-middle">
+            {% if ic.expiry_date %}
+              {% set now_ts = namespace(val=0) %}
+              {% set exp = ic.expiry_date %}
+              {# Use days_remaining approximation via template math not possible; use Python-side in view or just display date #}
+              <span class="expiry-date" data-expiry="{{ exp.isoformat() }}">
+                {{ exp.strftime('%Y-%m-%d') }}
+              </span>
+            {% else %}
+              <span class="text-muted">Unknown</span>
+            {% endif %}
+          </td>
+          <td class="align-middle text-end">
+            <a href="{{ url_for('intermediate_edit', ic_id=ic.id) }}" class="btn btn-sm btn-outline-primary me-1">
+              <i class="bi bi-pencil me-1"></i>Edit
+            </a>
+            <form action="{{ url_for('intermediate_delete', ic_id=ic.id) }}" method="post" class="d-inline"
+                  onsubmit="return confirm('Delete certificate \'{{ ic.name }}\'?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-diagram-3 display-4 text-muted mb-3 d-block"></i>
+    <h5 class="text-muted">No chain certificates yet</h5>
+    <p class="text-muted mb-4">Add intermediate and root CA certificates to build complete certificate chains for your downloads.</p>
+    <a href="{{ url_for('intermediate_form_new') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Certificate
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // Color-code expiry dates
+  document.querySelectorAll('.expiry-date').forEach(function (el) {
+    const expiryStr = el.dataset.expiry;
+    if (!expiryStr) return;
+    const expiry = new Date(expiryStr);
+    const now = new Date();
+    const diffMs = expiry - now;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const dateStr = el.textContent.trim();
+    if (diffDays < 0) {
+      el.innerHTML = '<span class="text-danger fw-semibold"><i class="bi bi-x-circle me-1"></i>' + dateStr + ' (Expired)</span>';
+    } else if (diffDays < 30) {
+      el.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>' + dateStr + ' (' + diffDays + 'd)</span>';
+    } else if (diffDays < 90) {
+      el.innerHTML = '<span class="text-warning"><i class="bi bi-clock me-1"></i>' + dateStr + ' (' + diffDays + 'd)</span>';
+    } else {
+      el.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>' + dateStr + ' (' + diffDays + 'd)</span>';
+    }
+  });
+
+  // Reorder buttons
+  function getRows() {
+    return Array.from(document.querySelectorAll('#chain-table tbody tr'));
+  }
+
+  function updateOrderBadges(rows) {
+    rows.forEach(function (row, idx) {
+      const badge = row.querySelector('.order-badge');
+      if (badge) badge.textContent = idx;
+    });
+  }
+
+  function saveOrder() {
+    const rows = getRows();
+    const payload = rows.map(function (row, idx) {
+      return { id: parseInt(row.dataset.id), order: idx };
+    });
+    fetch('{{ url_for("intermediate_reorder") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  document.querySelectorAll('.order-up').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const row = btn.closest('tr');
+      const prev = row.previousElementSibling;
+      if (prev) {
+        row.parentNode.insertBefore(row, prev);
+        updateOrderBadges(getRows());
+        saveOrder();
+      }
+    });
+  });
+
+  document.querySelectorAll('.order-down').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const row = btn.closest('tr');
+      const next = row.nextElementSibling;
+      if (next) {
+        row.parentNode.insertBefore(next, row);
+        updateOrderBadges(getRows());
+        saveOrder();
+      }
+    });
+  });
+});
+</script>
+{% endblock %}
