@@ -69,6 +69,8 @@ Superadmins access the **Users** page from the navbar. From there you can:
 5. Once the CA returns a signed cert, paste the PEM into the **Upload** section
 6. All download formats become available immediately
 
+For a full step-by-step walkthrough — including CA setup, CSR signing, importing intermediates, all export formats, and verification commands — see **[WORKFLOW.md](WORKFLOW.md)**.
+
 ---
 
 ## Installing on Ubuntu
