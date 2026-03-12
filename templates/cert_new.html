@@ -5,9 +5,22 @@
   <div class="col-lg-8">
     <div class="card shadow-sm">
       <div class="card-header bg-dark text-white">
-        <h5 class="mb-0"><i class="bi bi-plus-circle-fill me-2"></i>Generate New RSA Key &amp; CSR</h5>
+        {% if renew_from %}
+          <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>Renew / Rekey: {{ renew_from.domain }}</h5>
+        {% else %}
+          <h5 class="mb-0"><i class="bi bi-plus-circle-fill me-2"></i>Generate New RSA Key &amp; CSR</h5>
+        {% endif %}
       </div>
       <div class="card-body">
+        {% if renew_from %}
+        <div class="alert alert-warning d-flex align-items-start">
+          <i class="bi bi-arrow-repeat me-2 mt-1 flex-shrink-0"></i>
+          <div>
+            Pre-filled from <strong>{{ renew_from.domain }}</strong>. A brand-new private key and CSR will be generated —
+            your existing certificate remains active until you replace it.
+          </div>
+        </div>
+        {% else %}
         <div class="alert alert-info d-flex align-items-start">
           <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
           <div>
@@ -16,6 +29,7 @@
             Once you receive the signed certificate, upload it back here.
           </div>
         </div>
+        {% endif %}
 
         <form method="post" action="{{ url_for('certificate_new') }}">
           <h6 class="text-muted text-uppercase mb-3 mt-4" style="font-size:0.75rem;letter-spacing:1px;">Domain Information</h6>
@@ -23,6 +37,7 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">Common Name (Domain) <span class="text-danger">*</span></label>
             <input type="text" name="domain" class="form-control" required
+                   value="{{ renew_from.domain if renew_from else '' }}"
                    placeholder="example.com" />
             <div class="form-text">The primary domain name for this certificate (e.g., example.com or *.example.com)</div>
           </div>
@@ -30,51 +45,61 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">Subject Alternative Names (SANs)</label>
             <textarea name="san_domains" class="form-control" rows="4"
-                      placeholder="www.example.com&#10;api.example.com&#10;mail.example.com"></textarea>
+                      placeholder="www.example.com&#10;api.example.com&#10;mail.example.com">{% if renew_from %}{{ renew_from.san_list | join('\n') }}{% endif %}</textarea>
             <div class="form-text">One domain per line. These will be added as SANs in the CSR. The CN is automatically included.</div>
           </div>
 
           <hr class="my-4" />
           <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Key &amp; Subject Settings</h6>
+          {% if not renew_from %}
           <p class="text-muted small">Pre-filled from <a href="{{ url_for('settings') }}">default settings</a>. Override as needed.</p>
+          {% endif %}
+
+          {% set key_size_val = renew_from.key_size if renew_from else settings.key_size %}
+          {% set country_val  = renew_from.country  if renew_from else (settings.country  or '') %}
+          {% set state_val    = renew_from.state     if renew_from else (settings.state    or '') %}
+          {% set city_val     = renew_from.city      if renew_from else (settings.city     or '') %}
+          {% set org_name_val = renew_from.org_name  if renew_from else (settings.org_name or '') %}
+          {% set org_unit_val = renew_from.org_unit  if renew_from else (settings.org_unit or '') %}
+          {% set email_val    = renew_from.email     if renew_from else (settings.email    or '') %}
 
           <div class="row g-3">
             <div class="col-md-4">
               <label class="form-label fw-semibold">Key Size</label>
               <select name="key_size" class="form-select">
-                <option value="2048" {% if settings.key_size == 2048 %}selected{% endif %}>2048 (RSA-2048)</option>
-                <option value="4096" {% if settings.key_size == 4096 %}selected{% endif %}>4096 (RSA-4096)</option>
+                <option value="2048" {% if key_size_val == 2048 %}selected{% endif %}>2048 (RSA-2048)</option>
+                <option value="4096" {% if key_size_val == 4096 %}selected{% endif %}>4096 (RSA-4096)</option>
               </select>
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Country <span class="text-muted">(2 chars)</span></label>
               <input type="text" name="country" class="form-control" maxlength="2"
-                     value="{{ settings.country or '' }}" placeholder="US" />
+                     value="{{ country_val }}" placeholder="US" />
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">State / Province</label>
               <input type="text" name="state" class="form-control"
-                     value="{{ settings.state or '' }}" placeholder="California" />
+                     value="{{ state_val }}" placeholder="California" />
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">City / Locality</label>
               <input type="text" name="city" class="form-control"
-                     value="{{ settings.city or '' }}" placeholder="San Francisco" />
+                     value="{{ city_val }}" placeholder="San Francisco" />
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Organization Name</label>
               <input type="text" name="org_name" class="form-control"
-                     value="{{ settings.org_name or '' }}" placeholder="Acme Corp" />
+                     value="{{ org_name_val }}" placeholder="Acme Corp" />
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Organizational Unit</label>
               <input type="text" name="org_unit" class="form-control"
-                     value="{{ settings.org_unit or '' }}" placeholder="IT Department" />
+                     value="{{ org_unit_val }}" placeholder="IT Department" />
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Email Address</label>
               <input type="email" name="email" class="form-control"
-                     value="{{ settings.email or '' }}" placeholder="admin@example.com" />
+                     value="{{ email_val }}" placeholder="admin@example.com" />
             </div>
           </div>
 
@@ -82,7 +107,11 @@
             <button type="submit" class="btn btn-primary btn-lg">
               <i class="bi bi-key-fill me-2"></i>Generate RSA Key &amp; CSR
             </button>
+            {% if renew_from %}
+            <a href="{{ url_for('certificate_detail', cert_id=renew_from.id) }}" class="btn btn-outline-secondary btn-lg ms-2">Cancel</a>
+            {% else %}
             <a href="{{ url_for('certificates') }}" class="btn btn-outline-secondary btn-lg ms-2">Cancel</a>
+            {% endif %}
           </div>
         </form>
       </div>

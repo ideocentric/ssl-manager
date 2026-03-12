@@ -556,6 +556,29 @@ class TestCertificateNewRoute:
         assert b"created.example.com" in detail.data
         assert b"pending" in detail.data.lower()
 
+    def test_settings_prepopulate_form(self, client, flask_app):
+        """Settings values should pre-fill the new certificate form."""
+        with flask_app.app_context():
+            from app import Settings, db
+            s = Settings.query.first()
+            s.country = "DE"
+            s.state = "Bavaria"
+            s.city = "Munich"
+            s.org_name = "Widgets GmbH"
+            s.org_unit = "Engineering"
+            s.email = "ssl@widgets.de"
+            s.key_size = 4096
+            db.session.commit()
+
+        resp = client.get("/certificates/new")
+        assert b"DE" in resp.data
+        assert b"Bavaria" in resp.data
+        assert b"Munich" in resp.data
+        assert b"Widgets GmbH" in resp.data
+        assert b"Engineering" in resp.data
+        assert b"ssl@widgets.de" in resp.data
+        assert b'value="4096"' in resp.data
+
     def test_post_san_stored(self, client):
         resp = client.post("/certificates/new", data={
             "domain": "san.example.com",
@@ -778,6 +801,34 @@ class TestDownloadDer:
         cert_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
         resp = client.get(f"/certificates/{cert_id}/download/der")
         assert resp.status_code == 302
+
+
+class TestCertificateRenew:
+    def test_renew_returns_200(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/renew")
+        assert resp.status_code == 200
+
+    def test_renew_prefills_domain(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/renew")
+        assert b"example.com" in resp.data
+
+    def test_renew_shows_renewal_header(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/renew")
+        assert b"Renew / Rekey" in resp.data
+
+    def test_renew_cancel_links_back_to_cert(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/renew")
+        assert f"/certificates/{cert_record}".encode() in resp.data
+
+    def test_renew_submits_new_cert(self, client, cert_record):
+        """Submitting the renewal form creates a new independent certificate."""
+        resp = client.post("/certificates/new", data={
+            "domain": "example.com", "san_domains": "",
+            "key_size": "2048", "country": "US", "state": "", "city": "",
+            "org_name": "", "org_unit": "", "email": "",
+        }, follow_redirects=False)
+        new_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+        assert new_id != cert_record
 
 
 class TestSettingsRoute:

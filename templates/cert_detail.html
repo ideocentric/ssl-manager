@@ -13,9 +13,14 @@
       <span class="badge bg-warning text-dark ms-2" style="font-size:0.6em;vertical-align:middle;">Pending Signing</span>
     {% endif %}
   </h2>
-  <a href="{{ url_for('certificates') }}" class="btn btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('certificate_renew', cert_id=cert.id) }}" class="btn btn-outline-primary">
+      <i class="bi bi-arrow-repeat me-1"></i>Renew / Rekey
+    </a>
+    <a href="{{ url_for('certificates') }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+  </div>
 </div>
 
 <!-- Section 1: Certificate Info -->

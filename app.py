@@ -729,6 +729,14 @@ def certificate_new():
     return render_template("cert_new.html", settings=settings)
 
 
+@app.route("/certificates/<int:cert_id>/renew")
+@login_required
+def certificate_renew(cert_id):
+    cert = Certificate.query.get_or_404(cert_id)
+    settings = get_settings()
+    return render_template("cert_new.html", settings=settings, renew_from=cert)
+
+
 @app.route("/certificates/<int:cert_id>")
 @login_required
 def certificate_detail(cert_id):
