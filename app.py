@@ -1,3 +1,52 @@
+# ==============================================================================
+# FILE:           app.py
+# DESCRIPTION:    Flask web application for SSL certificate lifecycle management.
+#                 Handles RSA key and CSR generation, signed certificate storage,
+#                 CA chain management, multi-format bundle downloads, user
+#                 authentication, CSRF protection, input validation, and audit
+#                 logging.
+#
+# USAGE:          python app.py                        # local dev server
+#                 gunicorn --bind unix:/run/ssl-manager/ssl-manager.sock app:app
+#
+# DEPENDENCIES:   Flask, Flask-SQLAlchemy, Flask-Login, cryptography, pyjks,
+#                 gunicorn, openssl (system binary, required for P7B export)
+# REQUIREMENTS:   Python 3.10+
+#
+# AUTHOR:         Matt Comeione <matt@ideocentric.com>
+# ORGANIZATION:   ideocentric
+# GITHUB:         https://github.com/ideocentric/ssl-manager
+# CREATED:        2026-03-12
+# LAST MODIFIED:  2026-03-12
+# VERSION:        1.0.0
+#
+# CHANGELOG:
+#   1.0.0 - 2026-03-12 - Initial release
+#
+# NOTES:
+#   In production, run behind nginx (loopback only) with SSH port forwarding
+#   for remote access.  See README.md and install.sh for full deployment
+#   instructions.
+#
+# LICENSE:        GNU Affero General Public License v3.0 (AGPL-3.0)
+#                 Copyright (C) 2026  Matt Comeione / ideocentric
+# ==============================================================================
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# ==============================================================================
+
+
 import io
 import json
 import logging
@@ -70,6 +119,8 @@ except (OSError, AttributeError):
 # ---------------------------------------------------------------------------
 
 class User(db.Model, UserMixin):
+    """Application user with role-based access control."""
+
     __tablename__ = "user"
 
     id            = db.Column(db.Integer, primary_key=True)
@@ -83,29 +134,59 @@ class User(db.Model, UserMixin):
     # Flask-Login requires is_active; route it to our column
     @property
     def is_active(self):
+        """Return whether this user account is active."""
         return self.active
 
     def set_password(self, password: str) -> None:
+        """Hash and store the given password.
+
+        Args:
+            password: Plain-text password to hash and persist.
+        """
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
+        """Verify a plain-text password against the stored hash.
+
+        Args:
+            password: Plain-text password to check.
+
+        Returns:
+            True if the password matches, False otherwise.
+        """
         return check_password_hash(self.password_hash, password)
 
     @property
     def is_superadmin(self) -> bool:
+        """Return True if the user has the superadmin role."""
         return self.role == "superadmin"
 
 
 @login_manager.user_loader
 def load_user(user_id: str):
+    """Load a user by ID for Flask-Login session management.
+
+    Args:
+        user_id: String representation of the user's primary key.
+
+    Returns:
+        The User instance, or None if not found.
+    """
     return User.query.get(int(user_id))
 
 
 def _superadmin_count() -> int:
+    """Return the number of active superadmin users.
+
+    Returns:
+        Count of active users with the superadmin role.
+    """
     return User.query.filter_by(role="superadmin", active=True).count()
 
 
 class Settings(db.Model):
+    """Global default settings used when generating new certificates."""
+
     __tablename__ = "settings"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -119,6 +200,8 @@ class Settings(db.Model):
 
 
 class CertChain(db.Model):
+    """Named collection of intermediate certificates forming a trust chain."""
+
     __tablename__ = "cert_chain"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -133,6 +216,8 @@ class CertChain(db.Model):
 
 
 class IntermediateCert(db.Model):
+    """A single intermediate (or root) CA certificate belonging to a chain."""
+
     __tablename__ = "intermediate_cert"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -144,6 +229,7 @@ class IntermediateCert(db.Model):
 
     @property
     def parsed_cert(self):
+        """Return the parsed x509 certificate object, or None on failure."""
         try:
             return x509.load_pem_x509_certificate(self.pem_data.encode())
         except Exception:
@@ -151,6 +237,7 @@ class IntermediateCert(db.Model):
 
     @property
     def expiry_date(self):
+        """Return the certificate's expiry as a timezone-aware datetime, or None."""
         cert = self.parsed_cert
         if cert is None:
             return None
@@ -164,6 +251,7 @@ class IntermediateCert(db.Model):
 
     @property
     def subject(self):
+        """Return the certificate's Common Name, falling back to the full subject string."""
         cert = self.parsed_cert
         if cert is None:
             return "Unknown"
@@ -174,6 +262,7 @@ class IntermediateCert(db.Model):
 
     @property
     def is_root(self):
+        """Return True if the certificate is self-signed (subject equals issuer)."""
         cert = self.parsed_cert
         if cert is None:
             return False
@@ -184,6 +273,8 @@ class IntermediateCert(db.Model):
 
 
 class Certificate(db.Model):
+    """SSL/TLS certificate record, including key, CSR, signed cert, and metadata."""
+
     __tablename__ = "certificate"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -206,6 +297,7 @@ class Certificate(db.Model):
 
     @property
     def san_list(self):
+        """Return the Subject Alternative Names as a list of strings."""
         try:
             return json.loads(self.san_domains or "[]")
         except (json.JSONDecodeError, TypeError):
@@ -213,6 +305,7 @@ class Certificate(db.Model):
 
     @property
     def days_until_expiry(self):
+        """Return the number of days until the certificate expires, or None if not set."""
         if self.expiry_date is None:
             return None
         now = datetime.now(timezone.utc)
@@ -224,6 +317,7 @@ class Certificate(db.Model):
 
     @property
     def status_label(self):
+        """Return a display-ready status string, marking active-but-expired certs as 'expired'."""
         if self.status == "active":
             days = self.days_until_expiry
             if days is not None and days < 0:
@@ -243,6 +337,8 @@ class Certificate(db.Model):
 
 
 class AuditLog(db.Model):
+    """Immutable record of a security-relevant action performed in the application."""
+
     __tablename__ = "audit_log"
 
     id            = db.Column(db.Integer, primary_key=True)
@@ -262,6 +358,11 @@ class AuditLog(db.Model):
 # ---------------------------------------------------------------------------
 
 def get_settings():
+    """Return the singleton Settings row, creating it with defaults if absent.
+
+    Returns:
+        The Settings ORM instance.
+    """
     settings = Settings.query.first()
     if settings is None:
         settings = Settings()
@@ -654,9 +755,18 @@ def _audit(action, resource_type=None, resource_id=None, result="success", detai
 # ---------------------------------------------------------------------------
 
 def superadmin_required(f):
+    """Decorator that restricts a route to authenticated superadmin users.
+
+    Args:
+        f: The view function to protect.
+
+    Returns:
+        The wrapped view function that enforces superadmin access.
+    """
     @wraps(f)
     @login_required
     def decorated(*args, **kwargs):
+        """Enforce superadmin role before delegating to the wrapped view."""
         if not current_user.is_superadmin:
             flash("Superadmin access required.", "error")
             return redirect(url_for("certificates"))
@@ -721,6 +831,7 @@ def _set_security_headers(response):
 @app.route("/")
 @login_required
 def index():
+    """GET / — Redirect the root URL to the certificates list."""
     return redirect(url_for("certificates"))
 
 
@@ -759,6 +870,7 @@ def setup():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    """GET/POST /login — Display the login form and authenticate the user."""
     if current_user.is_authenticated:
         return redirect(url_for("certificates"))
     if request.method == "POST":
@@ -784,6 +896,7 @@ def login():
 @app.route("/logout")
 @login_required
 def logout():
+    """GET /logout — Log out the current user and redirect to the login page."""
     _audit("logout", "user", current_user.id, "success")
     logout_user()
     flash("You have been logged out.", "success")
@@ -795,6 +908,7 @@ def logout():
 @app.route("/users")
 @superadmin_required
 def users():
+    """GET /users — List all users (superadmin only)."""
     all_users = User.query.order_by(User.created_at.asc()).all()
     return render_template("users.html", users=all_users)
 
@@ -802,6 +916,7 @@ def users():
 @app.route("/users/new", methods=["GET", "POST"])
 @superadmin_required
 def user_new():
+    """GET/POST /users/new — Display and process the new-user creation form (superadmin only)."""
     if request.method == "POST":
         username = _clean(request.form.get("username", ""), 64)
         email    = _clean(request.form.get("email", ""), 256)
@@ -834,6 +949,7 @@ def user_new():
 @app.route("/users/<int:user_id>/edit")
 @superadmin_required
 def user_edit(user_id):
+    """GET /users/<user_id>/edit — Show the edit form for an existing user (superadmin only)."""
     user = User.query.get_or_404(user_id)
     return render_template("user_form.html", user=user, roles=["superadmin", "user"])
 
@@ -841,6 +957,7 @@ def user_edit(user_id):
 @app.route("/users/<int:user_id>/update", methods=["POST"])
 @superadmin_required
 def user_update(user_id):
+    """POST /users/<user_id>/update — Save edits to an existing user (superadmin only)."""
     user = User.query.get_or_404(user_id)
     username = _clean(request.form.get("username", ""), 64)
     email    = _clean(request.form.get("email", ""), 256)
@@ -887,6 +1004,7 @@ def user_update(user_id):
 @app.route("/users/<int:user_id>/delete", methods=["POST"])
 @superadmin_required
 def user_delete(user_id):
+    """POST /users/<user_id>/delete — Delete a user account (superadmin only)."""
     user = User.query.get_or_404(user_id)
     if user.id == current_user.id:
         flash("You cannot delete your own account.", "error")
@@ -907,6 +1025,7 @@ def user_delete(user_id):
 @app.route("/certificates")
 @login_required
 def certificates():
+    """GET /certificates — List all certificates ordered by creation date descending."""
     certs = Certificate.query.order_by(Certificate.created_at.desc()).all()
     return render_template("certificates.html", certs=certs)
 
@@ -914,6 +1033,7 @@ def certificates():
 @app.route("/certificates/new", methods=["GET", "POST"])
 @login_required
 def certificate_new():
+    """GET/POST /certificates/new — Display and process the new-certificate form, generating a key and CSR."""
     settings = get_settings()
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
     if request.method == "POST":
@@ -985,6 +1105,7 @@ def certificate_new():
 @app.route("/certificates/<int:cert_id>/renew")
 @login_required
 def certificate_renew(cert_id):
+    """GET /certificates/<cert_id>/renew — Show the new-certificate form pre-populated for renewal."""
     cert = Certificate.query.get_or_404(cert_id)
     settings = get_settings()
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
@@ -994,6 +1115,7 @@ def certificate_renew(cert_id):
 @app.route("/certificates/<int:cert_id>")
 @login_required
 def certificate_detail(cert_id):
+    """GET /certificates/<cert_id> — Show full details for a single certificate."""
     cert = Certificate.query.get_or_404(cert_id)
     intermediates = get_chain_intermediates(cert.chain_id)
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
@@ -1003,6 +1125,7 @@ def certificate_detail(cert_id):
 @app.route("/certificates/<int:cert_id>/set-chain", methods=["POST"])
 @login_required
 def certificate_set_chain(cert_id):
+    """POST /certificates/<cert_id>/set-chain — Assign or clear the certificate's trust chain."""
     cert = Certificate.query.get_or_404(cert_id)
     chain_id_raw = request.form.get("chain_id", "")
     try:
@@ -1018,6 +1141,7 @@ def certificate_set_chain(cert_id):
 @app.route("/certificates/<int:cert_id>/upload", methods=["POST"])
 @login_required
 def certificate_upload(cert_id):
+    """POST /certificates/<cert_id>/upload — Upload a signed certificate PEM (file or pasted text)."""
     cert = Certificate.query.get_or_404(cert_id)
 
     # Prefer file upload over pasted text
@@ -1056,6 +1180,7 @@ def certificate_upload(cert_id):
 @app.route("/certificates/<int:cert_id>/delete", methods=["POST"])
 @login_required
 def certificate_delete(cert_id):
+    """POST /certificates/<cert_id>/delete — Permanently delete a certificate record."""
     cert = Certificate.query.get_or_404(cert_id)
     domain = cert.domain
     db.session.delete(cert)
@@ -1070,6 +1195,7 @@ def certificate_delete(cert_id):
 @app.route("/certificates/<int:cert_id>/download/csr")
 @login_required
 def download_csr(cert_id):
+    """GET /certificates/<cert_id>/download/csr — Download the certificate's CSR as a PEM file."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.csr_pem:
         flash("No CSR available.", "error")
@@ -1087,6 +1213,7 @@ def download_csr(cert_id):
 @app.route("/certificates/<int:cert_id>/download/fullchain")
 @login_required
 def download_fullchain(cert_id):
+    """GET /certificates/<cert_id>/download/fullchain — Download private key + signed cert + intermediates as a PEM bundle."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
         flash("Certificate not yet signed.", "error")
@@ -1111,6 +1238,7 @@ def download_fullchain(cert_id):
 @app.route("/certificates/<int:cert_id>/download/components")
 @login_required
 def download_components(cert_id):
+    """GET /certificates/<cert_id>/download/components — Download a ZIP containing individual PEM component files."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
         flash("Certificate not yet signed.", "error")
@@ -1138,6 +1266,7 @@ def download_components(cert_id):
 @app.route("/certificates/<int:cert_id>/download/pkcs12", methods=["POST"])
 @login_required
 def download_pkcs12(cert_id):
+    """POST /certificates/<cert_id>/download/pkcs12 — Generate and download a PKCS#12 (.p12) bundle."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
         flash("Certificate not yet signed.", "error")
@@ -1169,6 +1298,7 @@ def download_pkcs12(cert_id):
 @app.route("/certificates/<int:cert_id>/download/jks", methods=["POST"])
 @login_required
 def download_jks(cert_id):
+    """POST /certificates/<cert_id>/download/jks — Generate and download a Java KeyStore (.jks) file."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
         flash("Certificate not yet signed.", "error")
@@ -1199,6 +1329,7 @@ def download_jks(cert_id):
 @app.route("/certificates/<int:cert_id>/download/p7b")
 @login_required
 def download_p7b(cert_id):
+    """GET /certificates/<cert_id>/download/p7b — Generate and download a PKCS#7 (.p7b) bundle via OpenSSL."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
         flash("Certificate not yet signed.", "error")
@@ -1225,6 +1356,7 @@ def download_p7b(cert_id):
 @app.route("/certificates/<int:cert_id>/download/der")
 @login_required
 def download_der(cert_id):
+    """GET /certificates/<cert_id>/download/der — Download the signed certificate in DER (binary) format."""
     cert = Certificate.query.get_or_404(cert_id)
     if not cert.signed_cert_pem:
         flash("Certificate not yet signed.", "error")
@@ -1247,6 +1379,7 @@ def download_der(cert_id):
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
 def settings():
+    """GET/POST /settings — Display and save global certificate-generation defaults."""
     s = get_settings()
     if request.method == "POST":
         country = _clean(request.form.get("country", ""), 2).upper()
@@ -1278,12 +1411,14 @@ def settings():
 @app.route("/intermediates")
 @login_required
 def intermediates():
+    """GET /intermediates — Legacy redirect to the /chains page."""
     return redirect(url_for("chains"))
 
 
 @app.route("/chains")
 @login_required
 def chains():
+    """GET /chains — List all certificate chains with their associated certificate counts."""
     all_chains = CertChain.query.order_by(CertChain.created_at.asc()).all()
     chain_cert_counts = {c.id: Certificate.query.filter_by(chain_id=c.id).count() for c in all_chains}
     return render_template("chains.html", chains=all_chains, chain_cert_counts=chain_cert_counts)
@@ -1292,6 +1427,7 @@ def chains():
 @app.route("/chains/new", methods=["GET", "POST"])
 @login_required
 def chain_new():
+    """GET/POST /chains/new — Display and process the new-chain creation form."""
     if request.method == "POST":
         name        = _clean(request.form.get("name", ""), 256)
         description = _clean(request.form.get("description", ""), 512)
@@ -1313,6 +1449,7 @@ def chain_new():
 @app.route("/chains/<int:chain_id>")
 @login_required
 def chain_detail(chain_id):
+    """GET /chains/<chain_id> — Show the details and intermediates for a specific chain."""
     chain = CertChain.query.get_or_404(chain_id)
     intermediates = sorted(chain.intermediates, key=lambda ic: ic.order)
     cert_count = Certificate.query.filter_by(chain_id=chain_id).count()
@@ -1322,6 +1459,7 @@ def chain_detail(chain_id):
 @app.route("/chains/<int:chain_id>/edit")
 @login_required
 def chain_edit(chain_id):
+    """GET /chains/<chain_id>/edit — Show the edit form for an existing chain."""
     chain = CertChain.query.get_or_404(chain_id)
     return render_template("chain_form.html", chain=chain)
 
@@ -1329,6 +1467,7 @@ def chain_edit(chain_id):
 @app.route("/chains/<int:chain_id>/update", methods=["POST"])
 @login_required
 def chain_update(chain_id):
+    """POST /chains/<chain_id>/update — Save name and description changes to a chain."""
     chain = CertChain.query.get_or_404(chain_id)
     name        = _clean(request.form.get("name", ""), 256)
     description = _clean(request.form.get("description", ""), 512)
@@ -1350,6 +1489,7 @@ def chain_update(chain_id):
 @app.route("/chains/<int:chain_id>/delete", methods=["POST"])
 @login_required
 def chain_delete(chain_id):
+    """POST /chains/<chain_id>/delete — Delete a chain and unlink any assigned certificates."""
     chain = CertChain.query.get_or_404(chain_id)
     Certificate.query.filter_by(chain_id=chain_id).update({"chain_id": None})
     name = chain.name
@@ -1363,6 +1503,7 @@ def chain_delete(chain_id):
 @app.route("/chains/<int:chain_id>/intermediates/new")
 @login_required
 def chain_intermediate_form_new(chain_id):
+    """GET /chains/<chain_id>/intermediates/new — Show the form to add a new intermediate certificate."""
     chain = CertChain.query.get_or_404(chain_id)
     return render_template("intermediate_form.html", cert=None, chain=chain,
                            action=url_for("chain_intermediate_new", chain_id=chain_id))
@@ -1371,6 +1512,7 @@ def chain_intermediate_form_new(chain_id):
 @app.route("/chains/<int:chain_id>/intermediates", methods=["POST"])
 @login_required
 def chain_intermediate_new(chain_id):
+    """POST /chains/<chain_id>/intermediates — Validate and save a new intermediate certificate to a chain."""
     chain = CertChain.query.get_or_404(chain_id)
     name     = _clean(request.form.get("name", ""), 256)
     pem_data = (request.form.get("pem_data", "") or "").strip()
@@ -1400,6 +1542,7 @@ def chain_intermediate_new(chain_id):
 @app.route("/chains/<int:chain_id>/intermediates/<int:ic_id>/edit")
 @login_required
 def chain_intermediate_edit(chain_id, ic_id):
+    """GET /chains/<chain_id>/intermediates/<ic_id>/edit — Show the edit form for an intermediate certificate."""
     chain = CertChain.query.get_or_404(chain_id)
     ic = IntermediateCert.query.get_or_404(ic_id)
     return render_template("intermediate_form.html", cert=ic, chain=chain,
@@ -1409,6 +1552,7 @@ def chain_intermediate_edit(chain_id, ic_id):
 @app.route("/chains/<int:chain_id>/intermediates/<int:ic_id>/update", methods=["POST"])
 @login_required
 def chain_intermediate_update(chain_id, ic_id):
+    """POST /chains/<chain_id>/intermediates/<ic_id>/update — Save edits to an existing intermediate certificate."""
     chain = CertChain.query.get_or_404(chain_id)
     ic = IntermediateCert.query.get_or_404(ic_id)
     name     = _clean(request.form.get("name", ""), 256)
@@ -1440,6 +1584,7 @@ def chain_intermediate_update(chain_id, ic_id):
 @app.route("/chains/<int:chain_id>/intermediates/<int:ic_id>/delete", methods=["POST"])
 @login_required
 def chain_intermediate_delete(chain_id, ic_id):
+    """POST /chains/<chain_id>/intermediates/<ic_id>/delete — Remove an intermediate certificate from a chain."""
     ic = IntermediateCert.query.get_or_404(ic_id)
     name = ic.name
     db.session.delete(ic)
@@ -1452,6 +1597,7 @@ def chain_intermediate_delete(chain_id, ic_id):
 @app.route("/chains/<int:chain_id>/reorder", methods=["POST"])
 @login_required
 def chain_reorder(chain_id):
+    """POST /chains/<chain_id>/reorder — Accept a JSON list of {id, order} pairs and update sort positions."""
     data = request.get_json()
     if not data or not isinstance(data, list):
         return {"error": "Invalid data"}, 400
@@ -1466,6 +1612,7 @@ def chain_reorder(chain_id):
 @app.route("/chains/<int:chain_id>/import", methods=["GET", "POST"])
 @login_required
 def chain_import(chain_id):
+    """GET/POST /chains/<chain_id>/import — Import a PEM bundle (file or pasted text) into a chain, skipping duplicates."""
     chain = CertChain.query.get_or_404(chain_id)
 
     if request.method == "GET":
@@ -1543,6 +1690,7 @@ def chain_import(chain_id):
 @app.route("/audit")
 @superadmin_required
 def audit_log_view():
+    """GET /audit — Display paginated audit log entries (superadmin only)."""
     page = request.args.get("page", 1, type=int)
     per_page = 50
     pagination = AuditLog.query.order_by(AuditLog.timestamp.desc()).paginate(
@@ -1555,12 +1703,14 @@ def audit_log_view():
 
 @app.errorhandler(404)
 def not_found(e):
+    """Render a custom 404 page and log the missing-path event."""
     _audit("not_found", result="failure", detail=f"path={request.path!r}")
     return render_template("404.html"), 404
 
 
 @app.errorhandler(403)
 def forbidden(e):
+    """Render a custom 403 page and log the forbidden-access event."""
     _audit("forbidden", result="failure", detail=f"path={request.path!r}")
     return render_template("403.html"), 403
 

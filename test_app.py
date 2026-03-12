@@ -1,10 +1,42 @@
-"""
-Unit tests for SSL Manager.
-
-Run with:
-    pytest test_app.py -v
-    pytest test_app.py -v --tb=short   # compact tracebacks
-"""
+# ==============================================================================
+# FILE:           test_app.py
+# DESCRIPTION:    pytest test suite for ssl-manager. Covers unit tests for
+#                 crypto helpers and validation utilities, and integration tests
+#                 for all Flask routes including auth, certificate CRUD,
+#                 downloads, chain management, audit logging, and error handlers.
+#
+# USAGE:          pytest test_app.py
+#   OPTIONS:
+#     -v                     Verbose output (one line per test)
+#     --tb=short             Compact tracebacks on failure
+#     -k <expression>        Run only tests matching the expression
+#     -x                     Stop on first failure
+#
+# EXAMPLES:
+#   pytest test_app.py -v
+#   pytest test_app.py -v --tb=short
+#   pytest test_app.py -k "TestAuditLog"
+#
+# DEPENDENCIES:   pytest, cryptography, Flask test client
+# REQUIREMENTS:   Python 3.10+
+#
+# AUTHOR:         Matt Comeione <matt@ideocentric.com>
+# ORGANIZATION:   ideocentric
+# GITHUB:         https://github.com/ideocentric/ssl-manager
+# CREATED:        2026-03-12
+# LAST MODIFIED:  2026-03-12
+# VERSION:        1.0.0
+#
+# CHANGELOG:
+#   1.0.0 - 2026-03-12 - Initial release
+#
+# NOTES:
+#   Tests use an in-memory SQLite database via StaticPool. CSRF enforcement
+#   is disabled in test mode (app.testing = True).
+#
+# LICENSE:        GNU Affero General Public License v3.0 (AGPL-3.0)
+#                 Copyright (C) 2026  Matt Comeione / ideocentric
+# ==============================================================================
 
 import json
 import os

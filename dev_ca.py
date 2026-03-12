@@ -1,24 +1,47 @@
 #!/usr/bin/env python3
-"""
-Local development CA for testing ssl-manager.
-
-A two-tier hierarchy is created that mirrors real-world CAs (e.g. GoDaddy):
-
-  Root CA  →  Intermediate CA  →  Domain certificate
-
-Commands:
-  python dev_ca.py init              — create root CA and intermediate CA
-  python dev_ca.py sign <csr_file>   — sign a CSR with the intermediate CA
-  python dev_ca.py info              — show cert details for both CAs
-  python dev_ca.py chain             — print PEMs for the Chain Certificates page
-
-Files created in ./dev-ca/:
-  root.key            — root CA private key       (keep secret)
-  root.crt            — root CA certificate       (self-signed)
-  intermediate.key    — intermediate CA key        (keep secret)
-  intermediate.crt    — intermediate CA certificate (signed by root)
-  signed/             — domain certs signed by the intermediate CA
-"""
+# ==============================================================================
+# FILE:           dev_ca.py
+# DESCRIPTION:    Local development Certificate Authority helper for ssl-manager.
+#                 Creates a two-tier CA hierarchy (root → intermediate) that
+#                 mirrors real-world CAs, allowing end-to-end UI testing without
+#                 a live Certificate Authority.
+#
+# USAGE:          python dev_ca.py <command> [OPTIONS]
+#   COMMANDS:
+#     init                   Create root CA and intermediate CA (run once)
+#     sign <csr_file>        Sign a CSR with the intermediate CA
+#     chain                  Print chain PEMs for the Chains UI (import bundle)
+#     info                   Show subject, issuer, and validity for both CAs
+#   OPTIONS:
+#     --days <n>             Validity period in days for signed certs (default: 365)
+#     --force                Re-generate CAs, overwriting existing files (init only)
+#
+# EXAMPLES:
+#   python dev_ca.py init
+#   python dev_ca.py sign ~/Downloads/example.com.csr
+#   python dev_ca.py sign example.com.csr --days 90
+#   python dev_ca.py init --force
+#
+# DEPENDENCIES:   cryptography
+# REQUIREMENTS:   Python 3.10+
+#
+# AUTHOR:         Matt Comeione <matt@ideocentric.com>
+# ORGANIZATION:   ideocentric
+# GITHUB:         https://github.com/ideocentric/ssl-manager
+# CREATED:        2026-03-12
+# LAST MODIFIED:  2026-03-12
+# VERSION:        1.0.0
+#
+# CHANGELOG:
+#   1.0.0 - 2026-03-12 - Initial release
+#
+# NOTES:
+#   The dev-ca/ directory is gitignored. Keep root.key and intermediate.key
+#   out of version control.
+#
+# LICENSE:        GNU Affero General Public License v3.0 (AGPL-3.0)
+#                 Copyright (C) 2026  Matt Comeione / ideocentric
+# ==============================================================================
 
 import argparse
 import sys
