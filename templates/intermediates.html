@@ -36,12 +36,12 @@
         <tr data-id="{{ ic.id }}">
           <td class="align-middle">
             <div class="d-flex align-items-center gap-1">
-              <button class="btn btn-sm btn-outline-secondary py-0 px-1 order-up"
+              <button class="btn btn-sm btn-secondary py-0 px-1 order-up"
                       data-id="{{ ic.id }}" title="Move up">
                 <i class="bi bi-chevron-up"></i>
               </button>
               <span class="order-badge fw-semibold text-center" style="min-width:1.5rem;">{{ ic.order }}</span>
-              <button class="btn btn-sm btn-outline-secondary py-0 px-1 order-down"
+              <button class="btn btn-sm btn-secondary py-0 px-1 order-down"
                       data-id="{{ ic.id }}" title="Move down">
                 <i class="bi bi-chevron-down"></i>
               </button>
@@ -71,12 +71,12 @@
             {% endif %}
           </td>
           <td class="align-middle text-end">
-            <a href="{{ url_for('intermediate_edit', ic_id=ic.id) }}" class="btn btn-sm btn-outline-primary me-1">
+            <a href="{{ url_for('intermediate_edit', ic_id=ic.id) }}" class="btn btn-sm btn-primary me-1">
               <i class="bi bi-pencil me-1"></i>Edit
             </a>
             <form action="{{ url_for('intermediate_delete', ic_id=ic.id) }}" method="post" class="d-inline"
                   onsubmit="return confirm('Delete certificate \'{{ ic.name }}\'?')">
-              <button type="submit" class="btn btn-sm btn-outline-danger">
+              <button type="submit" class="btn btn-sm btn-danger">
                 <i class="bi bi-trash"></i>
               </button>
             </form>

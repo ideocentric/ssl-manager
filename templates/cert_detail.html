@@ -14,10 +14,10 @@
     {% endif %}
   </h2>
   <div class="d-flex gap-2">
-    <a href="{{ url_for('certificate_renew', cert_id=cert.id) }}" class="btn btn-outline-primary">
+    <a href="{{ url_for('certificate_renew', cert_id=cert.id) }}" class="btn btn-primary">
       <i class="bi bi-arrow-repeat me-1"></i>Renew / Rekey
     </a>
-    <a href="{{ url_for('certificates') }}" class="btn btn-outline-secondary">
+    <a href="{{ url_for('certificates') }}" class="btn btn-secondary">
       <i class="bi bi-arrow-left me-1"></i>Back
     </a>
   </div>
@@ -25,7 +25,7 @@
 
 <!-- Section 1: Certificate Info -->
 <div class="card shadow-sm section-card">
-  <div class="card-header"><h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Certificate Information</h6></div>
+  <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Certificate Information</h6></div>
   <div class="card-body">
     <div class="row g-3">
       <div class="col-md-6">
@@ -43,7 +43,7 @@
           <dt class="text-muted small">Country</dt>
           <dd>{{ cert.country or '—' }}</dd>
           <dt class="text-muted small">State / City</dt>
-          <dd>{{ cert.state or '—' }}{% if cert.state and cert.city %}, {% endif %}{{ cert.city or '' }}</dd>
+          <dd>{% if cert.state and cert.city %}{{ cert.state }}, {{ cert.city }}{% elif cert.state %}{{ cert.state }}{% elif cert.city %}{{ cert.city }}{% else %}—{% endif %}</dd>
           <dt class="text-muted small">Organization</dt>
           <dd>{{ cert.org_name or '—' }}{% if cert.org_unit %} / {{ cert.org_unit }}{% endif %}</dd>
           <dt class="text-muted small">Email</dt>
@@ -68,7 +68,7 @@
 <!-- Section 2: CSR -->
 {% if cert.csr_pem %}
 <div class="card shadow-sm section-card">
-  <div class="card-header"><h6 class="mb-0"><i class="bi bi-file-code me-2"></i>Certificate Signing Request (CSR)</h6></div>
+  <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-file-code me-2"></i>Certificate Signing Request (CSR)</h6></div>
   <div class="card-body">
     {% if not cert.signed_cert_pem %}
     <div class="alert alert-info d-flex align-items-start mb-3">
@@ -77,7 +77,7 @@
     </div>
     {% endif %}
     <pre class="pem-block">{{ cert.csr_pem }}</pre>
-    <a href="{{ url_for('download_csr', cert_id=cert.id) }}" class="btn btn-outline-primary mt-2">
+    <a href="{{ url_for('download_csr', cert_id=cert.id) }}" class="btn btn-primary mt-2">
       <i class="bi bi-download me-2"></i>Download CSR
     </a>
   </div>
@@ -86,8 +86,8 @@
 
 <!-- Section 3: Upload Signed Certificate -->
 {% if cert.status == 'pending_signing' %}
-<div class="card shadow-sm section-card border-warning">
-  <div class="card-header bg-warning bg-opacity-25">
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-primary text-white">
     <h6 class="mb-0"><i class="bi bi-upload me-2"></i>Upload Signed Certificate</h6>
   </div>
   <div class="card-body">
@@ -111,7 +111,7 @@
 <!-- Section 4: Certificate Details (signed) -->
 {% if cert.signed_cert_pem %}
 <div class="card shadow-sm section-card">
-  <div class="card-header"><h6 class="mb-0"><i class="bi bi-patch-check me-2"></i>Signed Certificate Details</h6></div>
+  <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-patch-check me-2"></i>Signed Certificate Details</h6></div>
   <div class="card-body">
     <div class="row g-3">
       <div class="col-md-6">
@@ -147,7 +147,7 @@
 <!-- Section 5: Downloads -->
 {% if cert.signed_cert_pem %}
 <div class="card shadow-sm section-card">
-  <div class="card-header"><h6 class="mb-0"><i class="bi bi-download me-2"></i>Downloads</h6></div>
+  <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-download me-2"></i>Downloads</h6></div>
   <div class="card-body">
     {% if intermediates %}
     <div class="alert alert-secondary small mb-3">
@@ -159,11 +159,13 @@
     <div class="row g-3">
       <!-- Full Chain PEM -->
       <div class="col-md-6 col-lg-4">
-        <div class="card h-100 border-secondary">
+        <div class="card h-100">
+          <div class="card-header bg-success-light text-white py-2">
+            <h6 class="mb-0"><i class="bi bi-file-text me-2"></i>Full Chain PEM</h6>
+          </div>
           <div class="card-body d-flex flex-column">
-            <h6 class="card-title"><i class="bi bi-file-text me-2 text-primary"></i>Full Chain PEM</h6>
             <p class="card-text text-muted small flex-grow-1">Private key + certificate + intermediates in a single PEM file.</p>
-            <a href="{{ url_for('download_fullchain', cert_id=cert.id) }}" class="btn btn-outline-primary btn-sm">
+            <a href="{{ url_for('download_fullchain', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .pem
             </a>
           </div>
@@ -172,11 +174,13 @@
 
       <!-- Component PEMs ZIP -->
       <div class="col-md-6 col-lg-4">
-        <div class="card h-100 border-secondary">
+        <div class="card h-100">
+          <div class="card-header bg-success-light text-white py-2">
+            <h6 class="mb-0"><i class="bi bi-file-zip me-2"></i>Component PEMs (ZIP)</h6>
+          </div>
           <div class="card-body d-flex flex-column">
-            <h6 class="card-title"><i class="bi bi-file-zip me-2 text-success"></i>Component PEMs (ZIP)</h6>
             <p class="card-text text-muted small flex-grow-1">Separate PEM files for private key, certificate, intermediates, and fullchain in a ZIP archive.</p>
-            <a href="{{ url_for('download_components', cert_id=cert.id) }}" class="btn btn-outline-success btn-sm">
+            <a href="{{ url_for('download_components', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .zip
             </a>
           </div>
@@ -185,11 +189,13 @@
 
       <!-- P7B -->
       <div class="col-md-6 col-lg-4">
-        <div class="card h-100 border-secondary">
+        <div class="card h-100">
+          <div class="card-header bg-success-light text-white py-2">
+            <h6 class="mb-0"><i class="bi bi-file-binary me-2"></i>P7B (Cert Chain Only)</h6>
+          </div>
           <div class="card-body d-flex flex-column">
-            <h6 class="card-title"><i class="bi bi-file-binary me-2 text-secondary"></i>P7B (Cert Chain Only)</h6>
             <p class="card-text text-muted small flex-grow-1">PKCS#7 bundle containing the certificate and chain. Does not include the private key.</p>
-            <a href="{{ url_for('download_p7b', cert_id=cert.id) }}" class="btn btn-outline-secondary btn-sm">
+            <a href="{{ url_for('download_p7b', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .p7b
             </a>
           </div>
@@ -198,11 +204,13 @@
 
       <!-- DER -->
       <div class="col-md-6 col-lg-4">
-        <div class="card h-100 border-secondary">
+        <div class="card h-100">
+          <div class="card-header bg-success-light text-white py-2">
+            <h6 class="mb-0"><i class="bi bi-file-binary me-2"></i>DER (Binary)</h6>
+          </div>
           <div class="card-body d-flex flex-column">
-            <h6 class="card-title"><i class="bi bi-file-binary me-2 text-dark"></i>DER (Binary)</h6>
             <p class="card-text text-muted small flex-grow-1">Binary-encoded certificate only. No private key, no chain. Used by some Java and Windows tools.</p>
-            <a href="{{ url_for('download_der', cert_id=cert.id) }}" class="btn btn-outline-dark btn-sm">
+            <a href="{{ url_for('download_der', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .der
             </a>
           </div>
@@ -211,9 +219,11 @@
 
       <!-- PKCS#12 -->
       <div class="col-md-6 col-lg-4">
-        <div class="card h-100 border-warning">
+        <div class="card h-100">
+          <div class="card-header bg-success-light text-white py-2">
+            <h6 class="mb-0"><i class="bi bi-lock-fill me-2"></i>PKCS#12 / PFX</h6>
+          </div>
           <div class="card-body d-flex flex-column">
-            <h6 class="card-title"><i class="bi bi-lock-fill me-2 text-warning"></i>PKCS#12 / PFX</h6>
             <p class="card-text text-muted small flex-grow-1">Password-protected bundle with private key + certificate chain. Used by IIS, Windows, Java, etc.</p>
             <form method="post" action="{{ url_for('download_pkcs12', cert_id=cert.id) }}" class="mt-auto">
               <div class="input-group input-group-sm mb-2">
@@ -227,7 +237,7 @@
                 <span class="input-group-text" style="min-width:5rem;">Password</span>
                 <input type="password" name="password" class="form-control" placeholder="optional" />
               </div>
-              <button type="submit" class="btn btn-outline-warning btn-sm w-100">
+              <button type="submit" class="btn btn-success-light btn-sm w-100">
                 <i class="bi bi-download me-1"></i>Download .p12
               </button>
             </form>
@@ -237,9 +247,11 @@
 
       <!-- JKS -->
       <div class="col-md-6 col-lg-4">
-        <div class="card h-100 border-info">
+        <div class="card h-100">
+          <div class="card-header bg-success-light text-white py-2">
+            <h6 class="mb-0"><i class="bi bi-cup-hot-fill me-2"></i>Java KeyStore (JKS)</h6>
+          </div>
           <div class="card-body d-flex flex-column">
-            <h6 class="card-title"><i class="bi bi-cup-hot-fill me-2 text-info"></i>Java KeyStore (JKS)</h6>
             <p class="card-text text-muted small flex-grow-1">Java KeyStore format for Java application servers (Tomcat, Spring Boot, etc.).</p>
             <form method="post" action="{{ url_for('download_jks', cert_id=cert.id) }}" class="mt-auto">
               <div class="input-group input-group-sm mb-2">
@@ -253,7 +265,7 @@
                 <span class="input-group-text" style="min-width:5rem;">Password</span>
                 <input type="password" name="password" class="form-control" placeholder="changeit" value="changeit" />
               </div>
-              <button type="submit" class="btn btn-outline-info btn-sm w-100">
+              <button type="submit" class="btn btn-success-light btn-sm w-100">
                 <i class="bi bi-download me-1"></i>Download .jks
               </button>
             </form>
