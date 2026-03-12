@@ -10,6 +10,7 @@
       <div class="card-body">
         <p class="text-muted mb-4">These values pre-fill the certificate subject fields when generating new CSRs. You can override them per certificate.</p>
         <form method="post" action="{{ url_for('settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label fw-semibold">Default Key Size</label>
             <select name="key_size" class="form-select">

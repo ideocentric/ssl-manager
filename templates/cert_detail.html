@@ -79,6 +79,7 @@
   <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Certificate Chain</h6></div>
   <div class="card-body">
     <form method="post" action="{{ url_for('certificate_set_chain', cert_id=cert.id) }}" class="d-flex align-items-end gap-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="flex-grow-1">
         <label class="form-label fw-semibold mb-1">Assigned Chain</label>
         <select name="chain_id" class="form-select">
@@ -131,6 +132,7 @@
     <p class="text-muted">Provide the signed certificate PEM you received from your Certificate Authority — either upload a file or paste the PEM text below.</p>
     <form method="post" action="{{ url_for('certificate_upload', cert_id=cert.id) }}"
           enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label class="form-label fw-semibold">Upload Certificate File</label>
         <input type="file" name="cert_file" class="form-control"
@@ -271,6 +273,7 @@
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Password-protected bundle with private key + certificate chain. Used by IIS, Windows, Java, etc.</p>
             <form method="post" action="{{ url_for('download_pkcs12', cert_id=cert.id) }}" class="mt-auto">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="input-group input-group-sm mb-2">
                 <span class="input-group-text" style="min-width:5rem;">Name</span>
                 <input type="text" name="friendly_name" class="form-control"
@@ -299,6 +302,7 @@
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Java KeyStore format for Java application servers (Tomcat, Spring Boot, etc.).</p>
             <form method="post" action="{{ url_for('download_jks', cert_id=cert.id) }}" class="mt-auto">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="input-group input-group-sm mb-2">
                 <span class="input-group-text" style="min-width:5rem;">Name</span>
                 <input type="text" name="alias" class="form-control"
@@ -328,6 +332,7 @@
   <p class="text-muted small mb-3">Permanently delete this certificate and its private key. This action cannot be undone.</p>
   <form method="post" action="{{ url_for('certificate_delete', cert_id=cert.id) }}"
         onsubmit="return confirm('Permanently delete certificate for {{ cert.domain }}? This cannot be undone.')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-danger">
       <i class="bi bi-trash-fill me-2"></i>Delete Certificate
     </button>

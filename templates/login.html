@@ -8,6 +8,7 @@
           <i class="bi bi-shield-lock-fill me-2 text-primary"></i>Sign In
         </h4>
         <form method="post" action="{{ url_for('login') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label" for="username">Username</label>
             <input id="username" name="username" type="text"

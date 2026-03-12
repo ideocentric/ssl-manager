@@ -21,6 +21,7 @@
         <form method="post"
               action="{{ url_for('chain_import', chain_id=chain.id) }}"
               enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
           <div class="mb-4">
             <label class="form-label fw-semibold">Upload Bundle File</label>

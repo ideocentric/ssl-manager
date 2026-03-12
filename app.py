@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -11,11 +12,13 @@ from zipfile import ZipFile
 
 from flask import (
     Flask,
+    abort,
     flash,
     redirect,
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
 from flask_login import (
@@ -37,6 +40,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "ssl-manager-secret-key-change-in-prod")
+app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB upload limit
 
 db = SQLAlchemy(app)
 
@@ -485,6 +489,87 @@ def parse_pem_bundle(text):
 
 
 # ---------------------------------------------------------------------------
+# CSRF protection
+# ---------------------------------------------------------------------------
+
+def _get_csrf_token():
+    """Return the session CSRF token, generating one if it doesn't exist."""
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+
+app.jinja_env.globals["csrf_token"] = _get_csrf_token
+
+
+# ---------------------------------------------------------------------------
+# Input validation helpers
+# ---------------------------------------------------------------------------
+
+_DOMAIN_RE = re.compile(
+    r"^(\*\.)?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
+)
+_EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
+_COUNTRY_RE = re.compile(r"^[A-Za-z]{2}$")
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+
+
+def _clean(value, max_len=256):
+    """Strip whitespace and enforce a maximum length."""
+    return (value or "").strip()[:max_len]
+
+
+def _validate_domain(domain):
+    """Return an error string, or None if the domain is valid."""
+    if not domain:
+        return "Domain is required."
+    if len(domain) > 253:
+        return "Domain name must be 253 characters or fewer."
+    if not _DOMAIN_RE.match(domain):
+        return "Invalid domain name. Use a valid hostname (e.g. example.com or *.example.com)."
+    return None
+
+
+def _validate_san_list(san_raw):
+    """Validate newline-separated SAN domains. Returns (list, error_or_None)."""
+    domains = [s.strip() for s in san_raw.splitlines() if s.strip()]
+    for d in domains:
+        err = _validate_domain(d)
+        if err:
+            return [], f"Invalid SAN '{d}': use a valid hostname."
+    return domains, None
+
+
+def _validate_email(email):
+    """Return an error string, or None if email is valid (empty is allowed)."""
+    if not email:
+        return None
+    if len(email) > 256:
+        return "Email address must be 256 characters or fewer."
+    if not _EMAIL_RE.match(email):
+        return "Invalid email address format."
+    return None
+
+
+def _validate_country(country):
+    """Return an error string, or None if country code is valid (empty is allowed)."""
+    if not country:
+        return None
+    if not _COUNTRY_RE.match(country):
+        return "Country must be exactly 2 letters (e.g. US)."
+    return None
+
+
+def _validate_username(username):
+    """Return an error string, or None if the username is acceptable."""
+    if not username:
+        return "Username is required."
+    if not _USERNAME_RE.match(username):
+        return "Username may only contain letters, numbers, underscores, and hyphens (1–64 characters)."
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Auth decorator
 # ---------------------------------------------------------------------------
 
@@ -505,12 +590,47 @@ def superadmin_required(f):
 # ---------------------------------------------------------------------------
 
 @app.before_request
-def first_run_check():
-    """Redirect to setup page if no users exist yet."""
-    if request.endpoint in (None, "setup", "login", "logout", "static"):
+def _security_checks():
+    """First-run redirect and CSRF enforcement."""
+    if request.endpoint == "static":
         return
-    if User.query.count() == 0:
-        return redirect(url_for("setup"))
+
+    # Redirect to setup when no users exist
+    if request.endpoint not in (None, "setup", "login", "logout"):
+        if User.query.count() == 0:
+            return redirect(url_for("setup"))
+
+    # CSRF enforcement on all state-changing requests (skipped in test mode)
+    if not app.testing and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        session_token = session.get("csrf_token")
+        submitted = (
+            request.headers.get("X-CSRFToken", "")
+            if request.is_json
+            else request.form.get("csrf_token", "")
+        )
+        if not session_token or not submitted or not secrets.compare_digest(session_token, submitted):
+            if request.is_json:
+                abort(403)
+            flash("Your request could not be verified. Please try again.", "error")
+            return redirect(request.referrer or url_for("certificates"))
+
+
+@app.after_request
+def _set_security_headers(response):
+    """Apply security-related HTTP response headers."""
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+        "font-src 'self' cdn.jsdelivr.net data:; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none';"
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -531,19 +651,16 @@ def setup():
     if User.query.count() > 0:
         return redirect(url_for("login"))
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        email    = request.form.get("email", "").strip()
+        username = _clean(request.form.get("username", ""), 64)
+        email    = _clean(request.form.get("email", ""), 256)
         password = request.form.get("password", "")
         confirm  = request.form.get("confirm_password", "")
-        error = None
-        if not username:
-            error = "Username is required."
-        elif not email:
-            error = "Email is required."
-        elif len(password) < 8:
-            error = "Password must be at least 8 characters."
-        elif password != confirm:
-            error = "Passwords do not match."
+        error = (
+            _validate_username(username)
+            or _validate_email(email) or (None if email else "Email is required.")
+            or (None if len(password) >= 8 else "Password must be at least 8 characters.")
+            or (None if password == confirm else "Passwords do not match.")
+        )
         if error:
             flash(error, "error")
             return render_template("setup.html")
@@ -599,26 +716,21 @@ def users():
 @superadmin_required
 def user_new():
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        email    = request.form.get("email", "").strip()
+        username = _clean(request.form.get("username", ""), 64)
+        email    = _clean(request.form.get("email", ""), 256)
         password = request.form.get("password", "")
         confirm  = request.form.get("confirm_password", "")
         role     = request.form.get("role", "user")
         if role not in ("superadmin", "user"):
             role = "user"
-        error = None
-        if not username:
-            error = "Username is required."
-        elif not email:
-            error = "Email is required."
-        elif len(password) < 8:
-            error = "Password must be at least 8 characters."
-        elif password != confirm:
-            error = "Passwords do not match."
-        elif User.query.filter_by(username=username).first():
-            error = f"Username '{username}' is already taken."
-        elif User.query.filter_by(email=email).first():
-            error = f"Email '{email}' is already registered."
+        error = (
+            _validate_username(username)
+            or _validate_email(email) or (None if email else "Email is required.")
+            or (None if len(password) >= 8 else "Password must be at least 8 characters.")
+            or (None if password == confirm else "Passwords do not match.")
+            or (None if not User.query.filter_by(username=username).first() else f"Username '{username}' is already taken.")
+            or (None if not User.query.filter_by(email=email).first() else f"Email '{email}' is already registered.")
+        )
         if error:
             flash(error, "error")
             return render_template("user_form.html", user=None, roles=["superadmin", "user"])
@@ -642,26 +754,22 @@ def user_edit(user_id):
 @superadmin_required
 def user_update(user_id):
     user = User.query.get_or_404(user_id)
-    username = request.form.get("username", "").strip()
-    email    = request.form.get("email", "").strip()
+    username = _clean(request.form.get("username", ""), 64)
+    email    = _clean(request.form.get("email", ""), 256)
     role     = request.form.get("role", "user")
     active   = request.form.get("active") == "1"
     password = request.form.get("password", "")
     confirm  = request.form.get("confirm_password", "")
     if role not in ("superadmin", "user"):
         role = "user"
-    error = None
-    if not username:
-        error = "Username is required."
-    elif not email:
-        error = "Email is required."
-    else:
-        dup_user  = User.query.filter(User.username == username, User.id != user_id).first()
-        dup_email = User.query.filter(User.email == email,     User.id != user_id).first()
-        if dup_user:
-            error = f"Username '{username}' is already taken."
-        elif dup_email:
-            error = f"Email '{email}' is already registered."
+    dup_user  = User.query.filter(User.username == username, User.id != user_id).first()
+    dup_email = User.query.filter(User.email == email, User.id != user_id).first()
+    error = (
+        _validate_username(username)
+        or _validate_email(email) or (None if email else "Email is required.")
+        or (None if not dup_user  else f"Username '{username}' is already taken.")
+        or (None if not dup_email else f"Email '{email}' is already registered.")
+    )
     # Prevent removing the last active superadmin
     if not error and (role != "superadmin" or not active):
         if user.role == "superadmin" and user.active:
@@ -719,25 +827,32 @@ def certificate_new():
     settings = get_settings()
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
     if request.method == "POST":
-        domain = request.form.get("domain", "").strip()
-        if not domain:
-            flash("Domain is required.", "error")
-            return render_template("cert_new.html", settings=settings, chains=chains)
+        domain = _clean(request.form.get("domain", ""), 253)
+        san_raw = request.form.get("san_domains", "")
+        country = _clean(request.form.get("country", settings.country or ""), 2).upper()
+        state    = _clean(request.form.get("state",    settings.state    or ""), 128)
+        city     = _clean(request.form.get("city",     settings.city     or ""), 128)
+        org_name = _clean(request.form.get("org_name", settings.org_name or ""), 256)
+        org_unit = _clean(request.form.get("org_unit", settings.org_unit or ""), 256)
+        email    = _clean(request.form.get("email",    settings.email    or ""), 256)
 
-        san_raw = request.form.get("san_domains", "").strip()
-        san_list = [s.strip() for s in san_raw.splitlines() if s.strip()]
+        san_list, san_err = _validate_san_list(san_raw)
+        error = (
+            _validate_domain(domain)
+            or san_err
+            or _validate_country(country)
+            or _validate_email(email)
+        )
+        if error:
+            flash(error, "error")
+            return render_template("cert_new.html", settings=settings, chains=chains)
 
         try:
             key_size = int(request.form.get("key_size", settings.key_size))
         except (ValueError, TypeError):
             key_size = 2048
-
-        country = request.form.get("country", settings.country or "").strip()
-        state = request.form.get("state", settings.state or "").strip()
-        city = request.form.get("city", settings.city or "").strip()
-        org_name = request.form.get("org_name", settings.org_name or "").strip()
-        org_unit = request.form.get("org_unit", settings.org_unit or "").strip()
-        email = request.form.get("email", settings.email or "").strip()
+        if key_size not in (2048, 4096):
+            key_size = 2048
 
         chain_id_raw = request.form.get("chain_id", "")
         try:
@@ -1034,16 +1149,23 @@ def download_der(cert_id):
 def settings():
     s = get_settings()
     if request.method == "POST":
+        country = _clean(request.form.get("country", ""), 2).upper()
+        email   = _clean(request.form.get("email", ""), 256)
+        error = _validate_country(country) or _validate_email(email)
+        if error:
+            flash(error, "error")
+            return render_template("settings.html", settings=s)
         try:
-            s.key_size = int(request.form.get("key_size", 2048))
+            key_size = int(request.form.get("key_size", 2048))
         except (ValueError, TypeError):
-            s.key_size = 2048
-        s.country = request.form.get("country", "").strip()[:2]
-        s.state = request.form.get("state", "").strip()
-        s.city = request.form.get("city", "").strip()
-        s.org_name = request.form.get("org_name", "").strip()
-        s.org_unit = request.form.get("org_unit", "").strip()
-        s.email = request.form.get("email", "").strip()
+            key_size = 2048
+        s.key_size = key_size if key_size in (2048, 4096) else 2048
+        s.country  = country
+        s.state    = _clean(request.form.get("state",    ""), 128)
+        s.city     = _clean(request.form.get("city",     ""), 128)
+        s.org_name = _clean(request.form.get("org_name", ""), 256)
+        s.org_unit = _clean(request.form.get("org_unit", ""), 256)
+        s.email    = email
         db.session.commit()
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
@@ -1070,8 +1192,8 @@ def chains():
 @login_required
 def chain_new():
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        description = request.form.get("description", "").strip()
+        name        = _clean(request.form.get("name", ""), 256)
+        description = _clean(request.form.get("description", ""), 512)
         if not name:
             flash("Chain name is required.", "error")
             return render_template("chain_form.html", chain=None)
@@ -1106,8 +1228,8 @@ def chain_edit(chain_id):
 @login_required
 def chain_update(chain_id):
     chain = CertChain.query.get_or_404(chain_id)
-    name = request.form.get("name", "").strip()
-    description = request.form.get("description", "").strip()
+    name        = _clean(request.form.get("name", ""), 256)
+    description = _clean(request.form.get("description", ""), 512)
     if not name:
         flash("Chain name is required.", "error")
         return render_template("chain_form.html", chain=chain)
@@ -1146,10 +1268,10 @@ def chain_intermediate_form_new(chain_id):
 @login_required
 def chain_intermediate_new(chain_id):
     chain = CertChain.query.get_or_404(chain_id)
-    name = request.form.get("name", "").strip()
-    pem_data = request.form.get("pem_data", "").strip()
+    name     = _clean(request.form.get("name", ""), 256)
+    pem_data = (request.form.get("pem_data", "") or "").strip()
     try:
-        order = int(request.form.get("order", 0))
+        order = max(0, int(request.form.get("order", 0)))
     except (ValueError, TypeError):
         order = 0
     if not name:
@@ -1184,10 +1306,10 @@ def chain_intermediate_edit(chain_id, ic_id):
 def chain_intermediate_update(chain_id, ic_id):
     chain = CertChain.query.get_or_404(chain_id)
     ic = IntermediateCert.query.get_or_404(ic_id)
-    name = request.form.get("name", "").strip()
-    pem_data = request.form.get("pem_data", "").strip()
+    name     = _clean(request.form.get("name", ""), 256)
+    pem_data = (request.form.get("pem_data", "") or "").strip()
     try:
-        order = int(request.form.get("order", 0))
+        order = max(0, int(request.form.get("order", 0)))
     except (ValueError, TypeError):
         order = 0
     if not name:
@@ -1312,8 +1434,20 @@ def chain_import(chain_id):
 # App init
 # ---------------------------------------------------------------------------
 
+_ALLOWED_MIGRATIONS = {
+    ("intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)"),
+    ("certificate",       "chain_id INTEGER REFERENCES cert_chain(id)"),
+}
+
+
 def _add_column_if_missing(engine, table, column_def):
-    """Add a column to an existing SQLite table if it doesn't already exist."""
+    """Add a column to an existing SQLite table if it doesn't already exist.
+
+    Only whitelisted (table, column_def) pairs are permitted to prevent
+    accidental or malicious schema changes.
+    """
+    if (table, column_def) not in _ALLOWED_MIGRATIONS:
+        raise ValueError(f"Unrecognised migration: {table!r} / {column_def!r}")
     from sqlalchemy import inspect as sa_inspect, text
     inspector = sa_inspect(engine)
     cols = [c["name"] for c in inspector.get_columns(table)]

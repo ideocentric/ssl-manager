@@ -84,6 +84,7 @@
             {% endif %}
             <form action="{{ url_for('certificate_delete', cert_id=cert.id) }}" method="post" class="d-inline"
                   onsubmit="return confirm('Delete certificate for {{ cert.domain }}?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-danger">
                 <i class="bi bi-trash"></i>
               </button>

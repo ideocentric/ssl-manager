@@ -24,6 +24,7 @@
       <div class="card-body p-4">
         <form method="post"
               action="{{ url_for('chain_update', chain_id=chain.id) if chain else url_for('chain_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
             <input type="text" name="name" class="form-control" required

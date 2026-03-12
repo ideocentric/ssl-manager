@@ -20,6 +20,7 @@
       <div class="card-body p-4">
         <form method="post"
               action="{{ url_for('user_update', user_id=user.id) if user else url_for('user_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
           <div class="mb-3">
             <label class="form-label" for="username">Username</label>
@@ -75,6 +76,7 @@
       <div class="card-header"><strong>Change Password</strong></div>
       <div class="card-body p-4">
         <form method="post" action="{{ url_for('user_update', user_id=user.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           {# Re-send current username/email/role/active so the update handler
              doesn't see them as blank when only changing the password #}
           <input type="hidden" name="username" value="{{ user.username }}">

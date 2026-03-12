@@ -99,6 +99,7 @@
             <form action="{{ url_for('chain_intermediate_delete', chain_id=chain.id, ic_id=ic.id) }}"
                   method="post" class="d-inline"
                   onsubmit="return confirm('Delete certificate \'{{ ic.name }}\'?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-danger">
                 <i class="bi bi-trash"></i>
               </button>
@@ -155,7 +156,10 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     fetch('{{ url_for("chain_reorder", chain_id=chain.id) }}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}',
+      },
       body: JSON.stringify(payload),
     });
   }
