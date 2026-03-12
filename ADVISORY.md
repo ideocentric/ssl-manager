@@ -18,7 +18,7 @@ project dependencies declared in `requirements.txt`.
 | gunicorn | 22.0.0 | **23.0.0** | 0 | N/A | Upgraded (defence-in-depth) |
 | Flask-SQLAlchemy | 3.1.1 | 3.1.1 | 0 | N/A | No change required |
 | flask-login | 0.6.3 | 0.6.3 | 0 | N/A | No change required |
-| pyjks | 20.0.0 | 20.0.0 | 0 | N/A | No CVEs; package is abandoned — see notes |
+| pyjks | 20.0.0 | **removed** | 0 (abandoned) | N/A | Removed; replaced by keytool subprocess |
 
 ---
 
@@ -106,16 +106,16 @@ current latest release. No action required.
 
 ---
 
-### pyjks 20.0.0 — No CVEs (Abandoned Package)
+### pyjks 20.0.0 — Removed
 
-No CVEs found. However, pyjks has had no repository activity since its 2020.0.0 release and
-has no active security policy. The package parses Java KeyStore (JKS/JCEKS) files, which is
-an inherently sensitive operation. Any future vulnerability would go unpatched.
+No CVEs were found for pyjks. However, the package has had no repository activity since its
+2020.0.0 release and carries no active security policy. Any future vulnerability would go
+unpatched.
 
-**Recommendation:** Consider replacing pyjks with an actively maintained alternative or
-delegating JKS generation to a `keytool` subprocess call. The functionality should only ever
-be invoked with application-generated data (never with untrusted, externally supplied keystore
-files).
+**Resolution:** pyjks has been removed from `requirements.txt`. JKS creation is now delegated
+to a `keytool -importkeystore` subprocess call (the same pattern used for P7B/openssl), which
+requires Java (`default-jre-headless`) to be installed on the server. The `install.sh`
+installer adds this dependency automatically.
 
 ---
 

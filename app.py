@@ -9,8 +9,9 @@
 # USAGE:          python app.py                        # local dev server
 #                 gunicorn --bind unix:/run/ssl-manager/ssl-manager.sock app:app
 #
-# DEPENDENCIES:   Flask, Flask-SQLAlchemy, Flask-Login, cryptography, pyjks,
-#                 gunicorn, openssl (system binary, required for P7B export)
+# DEPENDENCIES:   Flask, Flask-SQLAlchemy, Flask-Login, cryptography,
+#                 gunicorn, openssl (system binary, required for P7B export),
+#                 keytool / Java JRE (system binary, required for JKS export)
 # REQUIREMENTS:   Python 3.10+
 #
 # AUTHOR:         Matt Comeione <matt@ideocentric.com>
@@ -471,48 +472,75 @@ def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password, name=None
 
 
 def create_jks(cert_pem, key_pem, intermediates_pem_list, store_password, alias="certificate"):
-    """Create JKS keystore. Returns bytes."""
-    import jks
+    """Create a JKS keystore via keytool. Returns bytes, or None if keytool is unavailable.
 
-    # Convert private key to PKCS8 DER
-    key = serialization.load_pem_private_key(key_pem.encode(), password=None)
-    key_der = key.private_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
+    Generates a PKCS12 bundle first (using the cryptography library), then
+    converts it to JKS with ``keytool -importkeystore``. Requires Java /
+    keytool to be installed and on PATH.
 
-    # Convert certs to DER
-    cert = x509.load_pem_x509_certificate(cert_pem.encode())
-    cert_der = cert.public_bytes(serialization.Encoding.DER)
+    Args:
+        cert_pem: Signed certificate PEM string.
+        key_pem: RSA private key PEM string.
+        intermediates_pem_list: List of intermediate CA PEM strings.
+        store_password: Keystore and key password (minimum 6 characters for JKS).
+        alias: Friendly name for the key entry.
 
-    cert_chain_der = [cert_der]
-    for pem in intermediates_pem_list:
-        if pem and pem.strip():
-            try:
-                ic = x509.load_pem_x509_certificate(pem.encode())
-                cert_chain_der.append(ic.public_bytes(serialization.Encoding.DER))
-            except Exception:
-                pass
+    Returns:
+        JKS bytes, or None if keytool is not available or the conversion fails.
 
-    entry = jks.PrivateKeyEntry.new(alias, cert_chain_der, key_der)
-
+    Raises:
+        ValueError: If store_password is shorter than 6 characters.
+    """
     if isinstance(store_password, bytes):
         store_password = store_password.decode()
 
-    keystore = jks.KeyStore.new("jks", [entry])
+    if len(store_password) < 6:
+        raise ValueError("JKS keystore password must be at least 6 characters.")
 
-    with tempfile.NamedTemporaryFile(suffix=".jks", delete=False) as tmp:
-        tmp_path = tmp.name
+    # Build PKCS12 first — cryptography library handles this natively
+    p12_bytes = create_pkcs12(cert_pem, key_pem, intermediates_pem_list,
+                               store_password, name=alias)
 
+    tmp_p12_path = None
+    tmp_jks_path = None
     try:
-        keystore.save(tmp_path, store_password)
-        with open(tmp_path, "rb") as f:
-            jks_bytes = f.read()
-    finally:
-        os.unlink(tmp_path)
+        with tempfile.NamedTemporaryFile(suffix=".p12", delete=False) as tmp_p12:
+            tmp_p12.write(p12_bytes)
+            tmp_p12_path = tmp_p12.name
 
-    return jks_bytes
+        with tempfile.NamedTemporaryFile(suffix=".jks", delete=False) as tmp_jks:
+            tmp_jks_path = tmp_jks.name
+
+        result = subprocess.run(
+            [
+                "keytool", "-importkeystore",
+                "-srckeystore",   tmp_p12_path,
+                "-srcstoretype",  "PKCS12",
+                "-srcstorepass",  store_password,
+                "-destkeystore",  tmp_jks_path,
+                "-deststoretype", "JKS",
+                "-deststorepass", store_password,
+                "-noprompt",
+            ],
+            capture_output=True,
+            timeout=15,
+        )
+
+        if result.returncode != 0:
+            return None
+
+        with open(tmp_jks_path, "rb") as f:
+            return f.read()
+
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        return None
+    finally:
+        for path in (tmp_p12_path, tmp_jks_path):
+            if path:
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
 
 
 def create_p7b(cert_pem_list):
@@ -1307,6 +1335,10 @@ def download_jks(cert_id):
     password = request.form.get("password", "changeit")
     alias = request.form.get("alias", "").strip() or normalize_alias(cert.domain)
 
+    if len(password) < 6:
+        flash("JKS keystore password must be at least 6 characters.", "error")
+        return redirect(url_for("certificate_detail", cert_id=cert_id))
+
     intermediates = get_chain_intermediates(cert.chain_id)
     intermediates_pems = [ic.pem_data for ic in intermediates]
 
@@ -1314,6 +1346,10 @@ def download_jks(cert_id):
         jks_bytes = create_jks(cert.signed_cert_pem, cert.private_key_pem, intermediates_pems, password, alias=alias)
     except Exception as e:
         flash(f"Error creating JKS: {e}", "error")
+        return redirect(url_for("certificate_detail", cert_id=cert_id))
+
+    if jks_bytes is None:
+        flash("JKS creation failed. Ensure Java (keytool) is installed.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
     buf = BytesIO(jks_bytes)

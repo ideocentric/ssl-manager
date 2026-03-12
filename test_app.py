@@ -40,6 +40,7 @@
 
 import json
 import os
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from zipfile import ZipFile
@@ -808,22 +809,70 @@ class TestDownloadPkcs12:
 
 
 class TestDownloadJks:
+    # Fake JKS bytes — real JKS files start with the magic header 0xFEEDFEED
+    _FAKE_JKS = b"\xfe\xed\xfe\xed" + b"\x00" * 20
+
+    def _mock_keytool_success(self, fake_bytes=None):
+        """Return a context manager that patches subprocess.run to succeed and
+        patches open() so the route reads fake JKS bytes from the temp file."""
+        data = fake_bytes or self._FAKE_JKS
+        mock_run = unittest.mock.patch(
+            "app.subprocess.run",
+            return_value=unittest.mock.Mock(returncode=0),
+        )
+        mock_open = unittest.mock.patch(
+            "builtins.open",
+            unittest.mock.mock_open(read_data=data),
+        )
+        return mock_run, mock_open
+
     def test_returns_bytes(self, client, cert_record):
-        resp = client.post(f"/certificates/{cert_record}/download/jks",
-                           data={"password": "changeit", "alias": "mykey"})
+        mock_run, mock_open = self._mock_keytool_success()
+        with mock_run, mock_open:
+            resp = client.post(f"/certificates/{cert_record}/download/jks",
+                               data={"password": "changeit", "alias": "mykey"})
         assert resp.status_code == 200
         assert len(resp.data) > 0
 
     def test_correct_filename(self, client, cert_record):
-        resp = client.post(f"/certificates/{cert_record}/download/jks",
-                           data={"password": "changeit", "alias": "mykey"})
+        mock_run, mock_open = self._mock_keytool_success()
+        with mock_run, mock_open:
+            resp = client.post(f"/certificates/{cert_record}/download/jks",
+                               data={"password": "changeit", "alias": "mykey"})
         assert "example.com.jks" in resp.headers["Content-Disposition"]
 
     def test_jks_magic_bytes(self, client, cert_record):
-        """JKS files start with the magic bytes 0xFEEDFEED."""
-        resp = client.post(f"/certificates/{cert_record}/download/jks",
-                           data={"password": "changeit", "alias": "mykey"})
+        """Route should stream whatever keytool writes — verify magic bytes pass through."""
+        mock_run, mock_open = self._mock_keytool_success()
+        with mock_run, mock_open:
+            resp = client.post(f"/certificates/{cert_record}/download/jks",
+                               data={"password": "changeit", "alias": "mykey"})
         assert resp.data[:4] == b"\xfe\xed\xfe\xed"
+
+    def test_keytool_failure_shows_error(self, client, cert_record):
+        """If keytool returns non-zero the route should flash an error and redirect."""
+        with unittest.mock.patch("app.subprocess.run",
+                                 return_value=unittest.mock.Mock(returncode=1)):
+            resp = client.post(f"/certificates/{cert_record}/download/jks",
+                               data={"password": "changeit", "alias": "mykey"},
+                               follow_redirects=True)
+        assert b"JKS creation failed" in resp.data
+
+    def test_keytool_not_found_shows_error(self, client, cert_record):
+        """If keytool is not on PATH the route should flash an error and redirect."""
+        with unittest.mock.patch("app.subprocess.run",
+                                 side_effect=FileNotFoundError):
+            resp = client.post(f"/certificates/{cert_record}/download/jks",
+                               data={"password": "changeit", "alias": "mykey"},
+                               follow_redirects=True)
+        assert b"JKS creation failed" in resp.data
+
+    def test_short_password_shows_error(self, client, cert_record):
+        """Passwords shorter than 6 characters should be rejected before calling keytool."""
+        resp = client.post(f"/certificates/{cert_record}/download/jks",
+                           data={"password": "abc", "alias": "mykey"},
+                           follow_redirects=True)
+        assert b"at least 6 characters" in resp.data
 
     def test_unsigned_cert_redirects(self, client):
         resp = client.post("/certificates/new", data={
@@ -833,7 +882,7 @@ class TestDownloadJks:
         }, follow_redirects=False)
         cert_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
         resp = client.post(f"/certificates/{cert_id}/download/jks",
-                           data={"password": "x", "alias": "x"})
+                           data={"password": "changeit", "alias": "x"})
         assert resp.status_code == 302
 
 

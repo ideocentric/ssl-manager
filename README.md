@@ -269,6 +269,7 @@ All queries use the SQLAlchemy ORM with parameterised bindings. The one raw SQL 
 
 - Python 3.10+
 - `openssl` in your PATH (for P7B downloads)
+- `keytool` in your PATH / Java JRE installed (for JKS downloads)
 
 ### Setup
 
@@ -439,6 +440,6 @@ ssl-manager/
 | Flask-SQLAlchemy | ORM / SQLite persistence |
 | Flask-Login | Session-based authentication |
 | cryptography | RSA key gen, CSR, x509 parsing, PKCS#12, DER |
-| pyjks | Java KeyStore (JKS) creation |
 | gunicorn | Production WSGI server |
 | openssl (system) | P7B/PKCS#7 bundle generation |
+| keytool (system) | Java KeyStore (JKS) creation via `keytool -importkeystore` |
