@@ -23,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 import app as app_module
 from app import (
+    AuditLog,
     Certificate,
     CertChain,
     IntermediateCert,
@@ -1310,3 +1311,68 @@ class TestNormalizeAlias:
 
     def test_empty_falls_back(self):
         assert normalize_alias("") == "certificate"
+
+
+# ---------------------------------------------------------------------------
+# Audit log tests
+# ---------------------------------------------------------------------------
+
+class TestAuditLogView:
+    def test_audit_page_accessible_to_superadmin(self, client):
+        resp = client.get("/audit")
+        assert resp.status_code == 200
+        assert b"Audit Log" in resp.data
+
+    def test_audit_page_denied_to_regular_user(self, flask_app, anon_client):
+        """Regular users (non-superadmin) should not reach the audit page."""
+        with flask_app.app_context():
+            regular = User(username="regular", email="regular@test.com", role="user")
+            regular.set_password("testpassword123")
+            db.session.add(regular)
+            db.session.commit()
+        anon_client.post("/login", data={"username": "regular", "password": "testpassword123"})
+        resp = anon_client.get("/audit", follow_redirects=True)
+        assert b"Superadmin access required" in resp.data
+
+    def test_login_success_creates_audit_entry(self, flask_app, anon_client):
+        anon_client.post("/login", data={
+            "username": TEST_ADMIN_USERNAME,
+            "password": TEST_ADMIN_PASSWORD,
+        })
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="login", result="success").first()
+            assert entry is not None
+            assert entry.username == TEST_ADMIN_USERNAME
+
+    def test_login_failure_creates_audit_entry(self, flask_app, anon_client):
+        anon_client.post("/login", data={
+            "username": TEST_ADMIN_USERNAME,
+            "password": "wrongpassword",
+        })
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="login_failed", result="failure").first()
+            assert entry is not None
+
+    def test_certificate_creation_creates_audit_entry(self, flask_app, client):
+        client.post("/certificates/new", data={
+            "domain": "audit-test.example.com",
+            "san_domains": "",
+            "key_size": "2048",
+            "country": "US",
+            "state": "CA",
+            "city": "SF",
+            "org_name": "Test",
+            "org_unit": "",
+            "email": "",
+            "chain_id": "",
+        })
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="certificate_created").first()
+            assert entry is not None
+            assert "audit-test.example.com" in (entry.detail or "")
+
+    def test_404_creates_audit_entry(self, flask_app, client):
+        client.get("/nonexistent-path-xyz")
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="not_found", result="failure").first()
+            assert entry is not None

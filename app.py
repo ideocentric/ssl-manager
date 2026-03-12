@@ -1,5 +1,7 @@
 import io
 import json
+import logging
+import logging.handlers
 import os
 import re
 import secrets
@@ -48,6 +50,19 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to access this page."
 login_manager.login_message_category = "warning"
+
+# ---------------------------------------------------------------------------
+# Logging / audit setup
+# ---------------------------------------------------------------------------
+
+app.logger.setLevel(logging.INFO)
+try:
+    _syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
+    _syslog_handler.setFormatter(logging.Formatter("ssl-manager: %(message)s"))
+    app.logger.addHandler(_syslog_handler)
+except (OSError, AttributeError):
+    # /dev/log unavailable (macOS, minimal Docker, etc.) — console logging only
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +240,21 @@ class Certificate(db.Model):
             www.example.com → www.example.com
         """
         return normalize_alias(self.domain)
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_log"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    timestamp     = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    username      = db.Column(db.String(64))
+    user_id       = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    ip_address    = db.Column(db.String(45))
+    action        = db.Column(db.String(64), nullable=False)
+    resource_type = db.Column(db.String(32))
+    resource_id   = db.Column(db.Integer)
+    result        = db.Column(db.String(16))   # "success" | "failure"
+    detail        = db.Column(db.String(512))
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +600,56 @@ def _validate_username(username):
 
 
 # ---------------------------------------------------------------------------
+# Audit helpers
+# ---------------------------------------------------------------------------
+
+def _get_client_ip():
+    """Return the client IP; trusts X-Real-IP set by the nginx proxy."""
+    return request.headers.get("X-Real-IP") or request.remote_addr or "unknown"
+
+
+def _audit(action, resource_type=None, resource_id=None, result="success", detail=None):
+    """Persist an audit event to the database and emit it via the system logger."""
+    username = None
+    uid = None
+    try:
+        if current_user and current_user.is_authenticated:
+            username = current_user.username
+            uid = current_user.id
+    except Exception:
+        pass
+
+    ip = _get_client_ip()
+
+    entry = AuditLog(
+        username=username,
+        user_id=uid,
+        ip_address=ip,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        result=result,
+        detail=(detail or "")[:512],
+    )
+    try:
+        db.session.add(entry)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    log_parts = [f"action={action}", f"result={result}", f"user={username!r}", f"ip={ip}"]
+    if resource_type:
+        log_parts.append(f"resource={resource_type}:{resource_id}")
+    if detail:
+        log_parts.append(f"detail={detail!r}")
+    msg = " ".join(log_parts)
+    if result == "failure":
+        app.logger.warning(msg)
+    else:
+        app.logger.info(msg)
+
+
+# ---------------------------------------------------------------------------
 # Auth decorator
 # ---------------------------------------------------------------------------
 
@@ -609,6 +689,7 @@ def _security_checks():
             else request.form.get("csrf_token", "")
         )
         if not session_token or not submitted or not secrets.compare_digest(session_token, submitted):
+            _audit("csrf_failure", result="failure", detail=f"endpoint={request.endpoint} method={request.method}")
             if request.is_json:
                 abort(403)
             flash("Your request could not be verified. Please try again.", "error")
@@ -662,6 +743,7 @@ def setup():
             or (None if password == confirm else "Passwords do not match.")
         )
         if error:
+            _audit("setup_failed", result="failure", detail=error)
             flash(error, "error")
             return render_template("setup.html")
         user = User(username=username, email=email, role="superadmin")
@@ -669,6 +751,7 @@ def setup():
         db.session.add(user)
         db.session.commit()
         login_user(user)
+        _audit("setup", "user", user.id, "success", f"superadmin created: {username}")
         flash(f"Welcome, {username}! Your admin account has been created.", "success")
         return redirect(url_for("certificates"))
     return render_template("setup.html")
@@ -684,12 +767,15 @@ def login():
         remember = bool(request.form.get("remember"))
         user = User.query.filter_by(username=username).first()
         if user is None or not user.check_password(password):
+            _audit("login_failed", "user", None, "failure", f"username={username!r}")
             flash("Invalid username or password.", "error")
             return render_template("login.html")
         if not user.active:
+            _audit("login_failed", "user", user.id, "failure", "account deactivated")
             flash("This account has been deactivated.", "error")
             return render_template("login.html")
         login_user(user, remember=remember)
+        _audit("login", "user", user.id, "success")
         next_page = request.args.get("next")
         return redirect(next_page or url_for("certificates"))
     return render_template("login.html")
@@ -698,6 +784,7 @@ def login():
 @app.route("/logout")
 @login_required
 def logout():
+    _audit("logout", "user", current_user.id, "success")
     logout_user()
     flash("You have been logged out.", "success")
     return redirect(url_for("login"))
@@ -738,6 +825,7 @@ def user_new():
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        _audit("user_created", "user", user.id, "success", f"username={username!r} role={role}")
         flash(f"User '{username}' created.", "success")
         return redirect(url_for("users"))
     return render_template("user_form.html", user=None, roles=["superadmin", "user"])
@@ -791,6 +879,7 @@ def user_update(user_id):
     user.role     = role
     user.active   = active
     db.session.commit()
+    _audit("user_updated", "user", user_id, "success", f"username={username!r} role={role} active={active}")
     flash(f"User '{username}' updated.", "success")
     return redirect(url_for("users"))
 
@@ -808,6 +897,7 @@ def user_delete(user_id):
     username = user.username
     db.session.delete(user)
     db.session.commit()
+    _audit("user_deleted", "user", user_id, "success", f"username={username!r}")
     flash(f"User '{username}' deleted.", "success")
     return redirect(url_for("users"))
 
@@ -885,6 +975,7 @@ def certificate_new():
         )
         db.session.add(cert)
         db.session.commit()
+        _audit("certificate_created", "certificate", cert.id, "success", f"domain={domain!r}")
         flash(f"RSA key and CSR generated for {domain}.", "success")
         return redirect(url_for("certificate_detail", cert_id=cert.id))
 
@@ -957,6 +1048,7 @@ def certificate_upload(cert_id):
         expiry = expiry.replace(tzinfo=None)
     cert.expiry_date = expiry
     db.session.commit()
+    _audit("certificate_signed", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     flash("Signed certificate uploaded successfully.", "success")
     return redirect(url_for("certificate_detail", cert_id=cert_id))
 
@@ -968,6 +1060,7 @@ def certificate_delete(cert_id):
     domain = cert.domain
     db.session.delete(cert)
     db.session.commit()
+    _audit("certificate_deleted", "certificate", cert_id, "success", f"domain={domain!r}")
     flash(f"Certificate for {domain} deleted.", "success")
     return redirect(url_for("certificates"))
 
@@ -982,6 +1075,7 @@ def download_csr(cert_id):
         flash("No CSR available.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
     buf = BytesIO(cert.csr_pem.encode())
+    _audit("download_csr", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/x-pem-file",
@@ -1005,6 +1099,7 @@ def download_fullchain(cert_id):
 
     fullchain = "\n".join(p.strip() for p in parts if p and p.strip()) + "\n"
     buf = BytesIO(fullchain.encode())
+    _audit("download_fullchain", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/x-pem-file",
@@ -1031,6 +1126,7 @@ def download_components(cert_id):
         intermediates_pems,
         csr_pem=cert.csr_pem,
     )
+    _audit("download_components", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/zip",
@@ -1061,6 +1157,7 @@ def download_pkcs12(cert_id):
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
     buf = BytesIO(p12_bytes)
+    _audit("download_pkcs12", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/x-pkcs12",
@@ -1090,6 +1187,7 @@ def download_jks(cert_id):
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
     buf = BytesIO(jks_bytes)
+    _audit("download_jks", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/octet-stream",
@@ -1115,6 +1213,7 @@ def download_p7b(cert_id):
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
     buf = BytesIO(p7b_bytes)
+    _audit("download_p7b", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/x-pkcs7-certificates",
@@ -1134,6 +1233,7 @@ def download_der(cert_id):
     x509_cert = x509.load_pem_x509_certificate(cert.signed_cert_pem.encode())
     der_bytes = x509_cert.public_bytes(serialization.Encoding.DER)
     buf = BytesIO(der_bytes)
+    _audit("download_der", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(
         buf,
         mimetype="application/x-x509-ca-cert",
@@ -1167,6 +1267,7 @@ def settings():
         s.org_unit = _clean(request.form.get("org_unit", ""), 256)
         s.email    = email
         db.session.commit()
+        _audit("settings_updated", "settings", None, "success")
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
     return render_template("settings.html", settings=s)
@@ -1203,6 +1304,7 @@ def chain_new():
         chain = CertChain(name=name, description=description)
         db.session.add(chain)
         db.session.commit()
+        _audit("chain_created", "chain", chain.id, "success", f"name={name!r}")
         flash(f"Chain '{name}' created.", "success")
         return redirect(url_for("chain_detail", chain_id=chain.id))
     return render_template("chain_form.html", chain=None)
@@ -1240,6 +1342,7 @@ def chain_update(chain_id):
     chain.name = name
     chain.description = description
     db.session.commit()
+    _audit("chain_updated", "chain", chain_id, "success", f"name={name!r}")
     flash(f"Chain '{name}' updated.", "success")
     return redirect(url_for("chain_detail", chain_id=chain_id))
 
@@ -1252,6 +1355,7 @@ def chain_delete(chain_id):
     name = chain.name
     db.session.delete(chain)
     db.session.commit()
+    _audit("chain_deleted", "chain", chain_id, "success", f"name={name!r}")
     flash(f"Chain '{name}' deleted. Assigned certificates have been unlinked.", "success")
     return redirect(url_for("chains"))
 
@@ -1288,6 +1392,7 @@ def chain_intermediate_new(chain_id):
     ic = IntermediateCert(name=name, pem_data=pem_data, order=order, chain_id=chain_id)
     db.session.add(ic)
     db.session.commit()
+    _audit("intermediate_created", "intermediate", ic.id, "success", f"name={name!r} chain_id={chain_id}")
     flash(f"Certificate '{name}' added.", "success")
     return redirect(url_for("chain_detail", chain_id=chain_id))
 
@@ -1327,6 +1432,7 @@ def chain_intermediate_update(chain_id, ic_id):
     ic.pem_data = pem_data
     ic.order = order
     db.session.commit()
+    _audit("intermediate_updated", "intermediate", ic_id, "success", f"name={name!r} chain_id={chain_id}")
     flash(f"Certificate '{name}' updated.", "success")
     return redirect(url_for("chain_detail", chain_id=chain_id))
 
@@ -1338,6 +1444,7 @@ def chain_intermediate_delete(chain_id, ic_id):
     name = ic.name
     db.session.delete(ic)
     db.session.commit()
+    _audit("intermediate_deleted", "intermediate", ic_id, "success", f"name={name!r} chain_id={chain_id}")
     flash(f"Certificate '{name}' deleted.", "success")
     return redirect(url_for("chain_detail", chain_id=chain_id))
 
@@ -1421,6 +1528,7 @@ def chain_import(chain_id):
     db.session.commit()
 
     if added:
+        _audit("chain_import", "chain", chain_id, "success", f"imported={added} skipped={len(skipped)}")
         flash(f"Imported {added} certificate(s) successfully.", "success")
     if skipped:
         flash(f"Skipped {len(skipped)} duplicate/invalid certificate(s): {', '.join(skipped)}", "warning")
@@ -1428,6 +1536,33 @@ def chain_import(chain_id):
         flash("No certificates were imported.", "warning")
 
     return redirect(url_for("chain_detail", chain_id=chain_id))
+
+
+# ---- Audit log viewer ----
+
+@app.route("/audit")
+@superadmin_required
+def audit_log_view():
+    page = request.args.get("page", 1, type=int)
+    per_page = 50
+    pagination = AuditLog.query.order_by(AuditLog.timestamp.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    return render_template("audit.html", entries=pagination.items, pagination=pagination)
+
+
+# ---- Error handlers ----
+
+@app.errorhandler(404)
+def not_found(e):
+    _audit("not_found", result="failure", detail=f"path={request.path!r}")
+    return render_template("404.html"), 404
+
+
+@app.errorhandler(403)
+def forbidden(e):
+    _audit("forbidden", result="failure", detail=f"path={request.path!r}")
+    return render_template("403.html"), 403
 
 
 # ---------------------------------------------------------------------------
