@@ -118,6 +118,10 @@ docs/_build/
 # Local dev CA (keys must never be committed)
 dev-ca/
 
+# Flask instance folder — contains the SQLite database (private keys, password hashes)
+instance/
+*.db
+
 # Logs
 *.log
 
