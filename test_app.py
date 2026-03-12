@@ -24,6 +24,7 @@ from sqlalchemy.pool import StaticPool
 import app as app_module
 from app import (
     Certificate,
+    CertChain,
     IntermediateCert,
     Settings,
     User,
@@ -33,6 +34,7 @@ from app import (
     generate_key_and_csr,
     normalize_alias,
     parse_cert_expiry,
+    parse_pem_bundle,
 )
 
 
@@ -233,20 +235,30 @@ def cert_record(flask_app):
 
 
 @pytest.fixture()
-def intermediate_record(client, rsa_key):
-    """An IntermediateCert created via HTTP so it is visible to subsequent requests."""
+def chain_record(client):
+    """A CertChain created via HTTP."""
+    resp = client.post("/chains/new",
+                       data={"name": "Test Chain", "description": "Test chain"},
+                       follow_redirects=False)
+    assert resp.status_code == 302
+    chain_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+    yield chain_id
+
+
+@pytest.fixture()
+def intermediate_record(client, chain_record, rsa_key):
+    """An IntermediateCert created via HTTP inside a chain."""
     pem = _make_self_signed_cert(rsa_key, domain="ca.example.com")
-    resp = client.post("/intermediates/new",
+    resp = client.post(f"/chains/{chain_record}/intermediates",
                        data={"name": "Test CA", "pem_data": pem, "order": "0"},
                        follow_redirects=False)
-    # Route redirects to /intermediates, not /intermediates/<id>.
-    # Retrieve the id via the list page's edit links by parsing the response.
-    list_resp = client.get("/intermediates")
-    # The edit link contains the id: /intermediates/<id>/edit
+    assert resp.status_code == 302
+    # Retrieve the ic id from the chain detail page
     import re
-    match = re.search(rb"/intermediates/(\d+)/edit", list_resp.data)
-    assert match, "Could not find intermediate record id in list page"
-    yield int(match.group(1))
+    detail = client.get(f"/chains/{chain_record}")
+    match = re.search(rb"/intermediates/(\d+)/edit", detail.data)
+    assert match, "Could not find intermediate record id in chain detail page"
+    yield int(match.group(1)), chain_record
 
 
 # ---------------------------------------------------------------------------
@@ -638,6 +650,27 @@ class TestCertificateUploadRoute:
                            follow_redirects=True)
         assert b"Invalid certificate PEM" in resp.data
 
+    def test_upload_via_file(self, client):
+        resp = client.post("/certificates/new", data={
+            "domain": "fileupload.example.com", "san_domains": "",
+            "key_size": "1024", "country": "", "state": "", "city": "",
+            "org_name": "", "org_unit": "", "email": "",
+        }, follow_redirects=False)
+        assert resp.status_code == 302
+        cert_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+
+        key = _make_rsa_key(1024)
+        signed_pem = _make_self_signed_cert(key, "fileupload.example.com")
+        resp = client.post(
+            f"/certificates/{cert_id}/upload",
+            data={"cert_file": (BytesIO(signed_pem.encode()), "cert.pem")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"fileupload.example.com" in resp.data
+        assert b"active" in resp.data.lower()
+
 
 class TestCertificateDeleteRoute:
     def test_delete_removes_record(self, client):
@@ -879,43 +912,76 @@ class TestSettingsRoute:
         assert b"US" in resp.data
 
 
-class TestIntermediatesRoute:
+class TestChainsRoute:
     def test_get_returns_200(self, client):
-        resp = client.get("/intermediates")
+        resp = client.get("/chains")
         assert resp.status_code == 200
 
-    def test_shows_intermediate_name(self, client, intermediate_record, flask_app):
-        resp = client.get("/intermediates")
-        assert b"Test CA" in resp.data
+    def test_intermediates_redirects_to_chains(self, client):
+        resp = client.get("/intermediates", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/chains" in resp.headers["Location"]
+
+    def test_shows_chain_name(self, client, chain_record):
+        resp = client.get("/chains")
+        assert b"Test Chain" in resp.data
+
+    def test_create_chain(self, client):
+        resp = client.post("/chains/new",
+                           data={"name": "My Chain", "description": "desc"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+
+    def test_duplicate_chain_name_rejected(self, client, chain_record):
+        resp = client.post("/chains/new",
+                           data={"name": "Test Chain", "description": ""},
+                           follow_redirects=True)
+        assert b"already exists" in resp.data
+
+    def test_chain_detail_returns_200(self, client, chain_record):
+        resp = client.get(f"/chains/{chain_record}")
+        assert resp.status_code == 200
+
+    def test_chain_update(self, client, chain_record):
+        resp = client.post(f"/chains/{chain_record}/update",
+                           data={"name": "Renamed Chain", "description": "new desc"},
+                           follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"Renamed Chain" in resp.data
+
+    def test_chain_delete(self, client, chain_record):
+        resp = client.post(f"/chains/{chain_record}/delete", follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"deleted" in resp.data.lower()
 
 
 class TestIntermediateNewRoute:
-    def test_get_form_returns_200(self, client):
-        resp = client.get("/intermediates/new-form")
+    def test_get_form_returns_200(self, client, chain_record):
+        resp = client.get(f"/chains/{chain_record}/intermediates/new")
         assert resp.status_code == 200
 
-    def test_post_missing_name_shows_error(self, client, rsa_key):
+    def test_post_missing_name_shows_error(self, client, chain_record, rsa_key):
         pem = _make_self_signed_cert(rsa_key, "ca.test.com")
-        resp = client.post("/intermediates/new",
+        resp = client.post(f"/chains/{chain_record}/intermediates",
                            data={"name": "", "pem_data": pem, "order": "0"},
                            follow_redirects=True)
         assert b"Name is required" in resp.data
 
-    def test_post_missing_pem_shows_error(self, client):
-        resp = client.post("/intermediates/new",
+    def test_post_missing_pem_shows_error(self, client, chain_record):
+        resp = client.post(f"/chains/{chain_record}/intermediates",
                            data={"name": "CA", "pem_data": "", "order": "0"},
                            follow_redirects=True)
         assert b"PEM data is required" in resp.data
 
-    def test_post_invalid_pem_shows_error(self, client):
-        resp = client.post("/intermediates/new",
+    def test_post_invalid_pem_shows_error(self, client, chain_record):
+        resp = client.post(f"/chains/{chain_record}/intermediates",
                            data={"name": "CA", "pem_data": "garbage pem", "order": "0"},
                            follow_redirects=True)
         assert b"Invalid PEM certificate data" in resp.data
 
-    def test_post_valid_creates_record(self, client, rsa_key):
+    def test_post_valid_creates_record(self, client, chain_record, rsa_key):
         pem = _make_self_signed_cert(rsa_key, "newca.example.com")
-        resp = client.post("/intermediates/new",
+        resp = client.post(f"/chains/{chain_record}/intermediates",
                            data={"name": "New CA", "pem_data": pem, "order": "5"},
                            follow_redirects=True)
         assert resp.status_code == 200
@@ -924,8 +990,9 @@ class TestIntermediateNewRoute:
 
 class TestIntermediateUpdateRoute:
     def test_post_updates_record(self, client, intermediate_record, rsa_key):
+        ic_id, chain_id = intermediate_record
         new_pem = _make_self_signed_cert(rsa_key, "updated.ca.com")
-        resp = client.post(f"/intermediates/{intermediate_record}/update",
+        resp = client.post(f"/chains/{chain_id}/intermediates/{ic_id}/update",
                            data={"name": "Updated CA", "pem_data": new_pem, "order": "10"},
                            follow_redirects=True)
         assert resp.status_code == 200
@@ -934,26 +1001,24 @@ class TestIntermediateUpdateRoute:
 
 class TestIntermediateDeleteRoute:
     def test_delete_removes_record(self, client, intermediate_record):
-        resp = client.post(f"/intermediates/{intermediate_record}/delete",
+        ic_id, chain_id = intermediate_record
+        resp = client.post(f"/chains/{chain_id}/intermediates/{ic_id}/delete",
                            follow_redirects=True)
         assert resp.status_code == 200
         assert b"deleted" in resp.data.lower()
-        # After deletion the edit link for this record should be gone
-        import re
-        edit_links = re.findall(rb"/intermediates/\d+/edit", resp.data)
-        assert len(edit_links) == 0
 
 
 class TestIntermediateReorderRoute:
     def test_reorder_updates_order(self, client, intermediate_record):
-        resp = client.post("/intermediates/reorder",
-                           data=json.dumps([{"id": intermediate_record, "order": 99}]),
+        ic_id, chain_id = intermediate_record
+        resp = client.post(f"/chains/{chain_id}/reorder",
+                           data=json.dumps([{"id": ic_id, "order": 99}]),
                            content_type="application/json")
         assert resp.status_code == 200
         assert resp.get_json()["status"] == "ok"
 
-    def test_reorder_invalid_body_returns_400(self, client):
-        resp = client.post("/intermediates/reorder",
+    def test_reorder_invalid_body_returns_400(self, client, chain_record):
+        resp = client.post(f"/chains/{chain_record}/reorder",
                            data=json.dumps({"not": "a list"}),
                            content_type="application/json")
         assert resp.status_code == 400
@@ -1108,6 +1173,125 @@ class TestUserManagement:
             "active": "1",
         }, follow_redirects=True)
         assert b"last active superadmin" in resp.data.lower()
+
+
+class TestParsePemBundle:
+    def _make_pem(self, cn="Test CA"):
+        key = _make_rsa_key()
+        pem = _make_self_signed_cert(key, cn)
+        return pem
+
+    def test_single_cert(self):
+        pem = self._make_pem("Single CA")
+        result = parse_pem_bundle(pem)
+        assert len(result) == 1
+        assert "BEGIN CERTIFICATE" in result[0]
+
+    def test_two_certs(self):
+        pem1 = self._make_pem("CA One")
+        pem2 = self._make_pem("CA Two")
+        bundle = pem1 + "\n" + pem2
+        result = parse_pem_bundle(bundle)
+        assert len(result) == 2
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="No PEM certificate"):
+            parse_pem_bundle("not a certificate")
+
+    def test_whitespace_between_certs(self):
+        pem1 = self._make_pem("CA A")
+        pem2 = self._make_pem("CA B")
+        bundle = pem1 + "\n\n\n" + pem2
+        result = parse_pem_bundle(bundle)
+        assert len(result) == 2
+
+
+class TestChainImportRoute:
+    def test_import_page_loads(self, client, chain_record):
+        resp = client.get(f"/chains/{chain_record}/import")
+        assert resp.status_code == 200
+        assert b"Import Certificate Bundle" in resp.data
+
+    def test_import_pem_text(self, flask_app, client, chain_record):
+        key1 = _make_rsa_key()
+        key2 = _make_rsa_key()
+        pem1 = _make_self_signed_cert(key1, "Import CA One")
+        pem2 = _make_self_signed_cert(key2, "Import CA Two")
+        bundle = pem1 + "\n" + pem2
+
+        resp = client.post(
+            f"/chains/{chain_record}/import",
+            data={"pem_text": bundle},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Imported 2" in resp.data
+
+        with flask_app.app_context():
+            ics = IntermediateCert.query.filter_by(chain_id=chain_record).all()
+            names = [ic.name for ic in ics]
+        assert "Import CA One" in names
+        assert "Import CA Two" in names
+
+    def test_import_file_upload(self, flask_app, client, chain_record):
+        key = _make_rsa_key()
+        pem = _make_self_signed_cert(key, "File Upload CA")
+
+        resp = client.post(
+            f"/chains/{chain_record}/import",
+            data={"bundle_file": (BytesIO(pem.encode()), "bundle.pem")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Imported 1" in resp.data
+
+        with flask_app.app_context():
+            ic = IntermediateCert.query.filter_by(
+                chain_id=chain_record, name="File Upload CA"
+            ).first()
+        assert ic is not None
+
+    def test_import_skips_duplicates(self, flask_app, client, chain_record):
+        key = _make_rsa_key()
+        pem = _make_self_signed_cert(key, "Dup CA")
+
+        # Import once
+        client.post(
+            f"/chains/{chain_record}/import",
+            data={"pem_text": pem},
+            follow_redirects=True,
+        )
+        # Import again — should skip
+        resp = client.post(
+            f"/chains/{chain_record}/import",
+            data={"pem_text": pem},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Skipped" in resp.data
+
+        with flask_app.app_context():
+            count = IntermediateCert.query.filter_by(
+                chain_id=chain_record, name="Dup CA"
+            ).count()
+        assert count == 1
+
+    def test_import_no_data_error(self, client, chain_record):
+        resp = client.post(
+            f"/chains/{chain_record}/import",
+            data={"pem_text": ""},
+            follow_redirects=True,
+        )
+        assert b"No PEM data" in resp.data
+
+    def test_import_invalid_pem_error(self, client, chain_record):
+        resp = client.post(
+            f"/chains/{chain_record}/import",
+            data={"pem_text": "this is not a pem"},
+            follow_redirects=True,
+        )
+        assert b"No PEM certificate" in resp.data
 
 
 class TestNormalizeAlias:

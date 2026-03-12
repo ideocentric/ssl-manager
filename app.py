@@ -99,6 +99,20 @@ class Settings(db.Model):
     email = db.Column(db.String(256), default="")
 
 
+class CertChain(db.Model):
+    __tablename__ = "cert_chain"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(256), nullable=False)
+    description = db.Column(db.String(512), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    intermediates = db.relationship(
+        "IntermediateCert", backref="chain", lazy=True,
+        cascade="all, delete-orphan",
+    )
+    certificates = db.relationship("Certificate", backref="chain", lazy=True)
+
+
 class IntermediateCert(db.Model):
     __tablename__ = "intermediate_cert"
 
@@ -106,6 +120,7 @@ class IntermediateCert(db.Model):
     name = db.Column(db.String(256), nullable=False)
     pem_data = db.Column(db.Text, nullable=False)
     order = db.Column(db.Integer, default=0)
+    chain_id = db.Column(db.Integer, db.ForeignKey("cert_chain.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     @property
@@ -168,6 +183,7 @@ class Certificate(db.Model):
     org_name = db.Column(db.String(256), default="")
     org_unit = db.Column(db.String(256), default="")
     email = db.Column(db.String(256), default="")
+    chain_id = db.Column(db.Integer, db.ForeignKey("cert_chain.id"), nullable=True)
 
     @property
     def san_list(self):
@@ -441,8 +457,31 @@ def create_components_zip(domain, cert_pem, key_pem, intermediates_pem_list, csr
 
 
 def get_intermediates_ordered():
-    """Return intermediate certs sorted by order ascending."""
+    """Return all intermediate certs sorted by order ascending (legacy helper)."""
     return IntermediateCert.query.order_by(IntermediateCert.order.asc()).all()
+
+
+def get_chain_intermediates(chain_id):
+    """Return intermediate certs for a specific chain, sorted by order."""
+    if chain_id is None:
+        return []
+    return IntermediateCert.query.filter_by(chain_id=chain_id).order_by(IntermediateCert.order.asc()).all()
+
+
+def parse_pem_bundle(text):
+    """Split a concatenated PEM bundle into a list of individual PEM strings.
+
+    Returns a list of strings, each containing one PEM certificate block.
+    Raises ValueError if no valid certificates are found.
+    """
+    pattern = re.compile(
+        r"(-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----)",
+        re.MULTILINE,
+    )
+    certs = pattern.findall(text)
+    if not certs:
+        raise ValueError("No PEM certificate blocks found in the provided text.")
+    return [c.strip() for c in certs]
 
 
 # ---------------------------------------------------------------------------
@@ -678,11 +717,12 @@ def certificates():
 @login_required
 def certificate_new():
     settings = get_settings()
+    chains = CertChain.query.order_by(CertChain.name.asc()).all()
     if request.method == "POST":
         domain = request.form.get("domain", "").strip()
         if not domain:
             flash("Domain is required.", "error")
-            return render_template("cert_new.html", settings=settings)
+            return render_template("cert_new.html", settings=settings, chains=chains)
 
         san_raw = request.form.get("san_domains", "").strip()
         san_list = [s.strip() for s in san_raw.splitlines() if s.strip()]
@@ -699,13 +739,19 @@ def certificate_new():
         org_unit = request.form.get("org_unit", settings.org_unit or "").strip()
         email = request.form.get("email", settings.email or "").strip()
 
+        chain_id_raw = request.form.get("chain_id", "")
+        try:
+            chain_id = int(chain_id_raw) if chain_id_raw else None
+        except ValueError:
+            chain_id = None
+
         try:
             private_key_pem, csr_pem = generate_key_and_csr(
                 domain, san_list, key_size, country, state, city, org_name, org_unit, email
             )
         except Exception as e:
             flash(f"Error generating key/CSR: {e}", "error")
-            return render_template("cert_new.html", settings=settings)
+            return render_template("cert_new.html", settings=settings, chains=chains)
 
         cert = Certificate(
             domain=domain,
@@ -720,13 +766,14 @@ def certificate_new():
             org_name=org_name,
             org_unit=org_unit,
             email=email,
+            chain_id=chain_id,
         )
         db.session.add(cert)
         db.session.commit()
         flash(f"RSA key and CSR generated for {domain}.", "success")
         return redirect(url_for("certificate_detail", cert_id=cert.id))
 
-    return render_template("cert_new.html", settings=settings)
+    return render_template("cert_new.html", settings=settings, chains=chains)
 
 
 @app.route("/certificates/<int:cert_id>/renew")
@@ -734,22 +781,50 @@ def certificate_new():
 def certificate_renew(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
     settings = get_settings()
-    return render_template("cert_new.html", settings=settings, renew_from=cert)
+    chains = CertChain.query.order_by(CertChain.name.asc()).all()
+    return render_template("cert_new.html", settings=settings, renew_from=cert, chains=chains)
 
 
 @app.route("/certificates/<int:cert_id>")
 @login_required
 def certificate_detail(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
-    intermediates = get_intermediates_ordered()
-    return render_template("cert_detail.html", cert=cert, intermediates=intermediates)
+    intermediates = get_chain_intermediates(cert.chain_id)
+    chains = CertChain.query.order_by(CertChain.name.asc()).all()
+    return render_template("cert_detail.html", cert=cert, intermediates=intermediates, chains=chains)
+
+
+@app.route("/certificates/<int:cert_id>/set-chain", methods=["POST"])
+@login_required
+def certificate_set_chain(cert_id):
+    cert = Certificate.query.get_or_404(cert_id)
+    chain_id_raw = request.form.get("chain_id", "")
+    try:
+        cert.chain_id = int(chain_id_raw) if chain_id_raw else None
+    except ValueError:
+        cert.chain_id = None
+    db.session.commit()
+    chain_name = cert.chain.name if cert.chain else "None"
+    flash(f"Certificate chain updated to: {chain_name}.", "success")
+    return redirect(url_for("certificate_detail", cert_id=cert_id))
 
 
 @app.route("/certificates/<int:cert_id>/upload", methods=["POST"])
 @login_required
 def certificate_upload(cert_id):
     cert = Certificate.query.get_or_404(cert_id)
-    signed_pem = request.form.get("signed_cert_pem", "").strip()
+
+    # Prefer file upload over pasted text
+    uploaded = request.files.get("cert_file")
+    if uploaded and uploaded.filename:
+        try:
+            signed_pem = uploaded.read().decode("utf-8", errors="replace").strip()
+        except Exception as e:
+            flash(f"Could not read uploaded file: {e}", "error")
+            return redirect(url_for("certificate_detail", cert_id=cert_id))
+    else:
+        signed_pem = request.form.get("signed_cert_pem", "").strip()
+
     if not signed_pem:
         flash("No certificate PEM provided.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
@@ -808,7 +883,7 @@ def download_fullchain(cert_id):
         flash("Certificate not yet signed.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
-    intermediates = get_intermediates_ordered()
+    intermediates = get_chain_intermediates(cert.chain_id)
     parts = [cert.private_key_pem, cert.signed_cert_pem]
     for ic in intermediates:
         parts.append(ic.pem_data)
@@ -831,7 +906,7 @@ def download_components(cert_id):
         flash("Certificate not yet signed.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
-    intermediates = get_intermediates_ordered()
+    intermediates = get_chain_intermediates(cert.chain_id)
     intermediates_pems = [ic.pem_data for ic in intermediates]
 
     buf = create_components_zip(
@@ -860,7 +935,7 @@ def download_pkcs12(cert_id):
     password      = request.form.get("password", "")
     friendly_name = request.form.get("friendly_name", "").strip() or normalize_alias(cert.domain)
 
-    intermediates = get_intermediates_ordered()
+    intermediates = get_chain_intermediates(cert.chain_id)
     intermediates_pems = [ic.pem_data for ic in intermediates]
 
     try:
@@ -890,7 +965,7 @@ def download_jks(cert_id):
     password = request.form.get("password", "changeit")
     alias = request.form.get("alias", "").strip() or normalize_alias(cert.domain)
 
-    intermediates = get_intermediates_ordered()
+    intermediates = get_chain_intermediates(cert.chain_id)
     intermediates_pems = [ic.pem_data for ic in intermediates]
 
     try:
@@ -916,7 +991,7 @@ def download_p7b(cert_id):
         flash("Certificate not yet signed.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
-    intermediates = get_intermediates_ordered()
+    intermediates = get_chain_intermediates(cert.chain_id)
     pem_list = [cert.signed_cert_pem] + [ic.pem_data for ic in intermediates]
 
     p7b_bytes = create_p7b(pem_list)
@@ -975,61 +1050,139 @@ def settings():
     return render_template("settings.html", settings=s)
 
 
-# ---- Intermediates ----
+# ---- Certificate Chains ----
 
 @app.route("/intermediates")
 @login_required
 def intermediates():
-    certs = get_intermediates_ordered()
-    return render_template("intermediates.html", certs=certs)
+    return redirect(url_for("chains"))
 
 
-@app.route("/intermediates/new", methods=["POST"])
+@app.route("/chains")
 @login_required
-def intermediate_new():
+def chains():
+    all_chains = CertChain.query.order_by(CertChain.created_at.asc()).all()
+    chain_cert_counts = {c.id: Certificate.query.filter_by(chain_id=c.id).count() for c in all_chains}
+    return render_template("chains.html", chains=all_chains, chain_cert_counts=chain_cert_counts)
+
+
+@app.route("/chains/new", methods=["GET", "POST"])
+@login_required
+def chain_new():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip()
+        if not name:
+            flash("Chain name is required.", "error")
+            return render_template("chain_form.html", chain=None)
+        if CertChain.query.filter_by(name=name).first():
+            flash(f"A chain named '{name}' already exists.", "error")
+            return render_template("chain_form.html", chain=None)
+        chain = CertChain(name=name, description=description)
+        db.session.add(chain)
+        db.session.commit()
+        flash(f"Chain '{name}' created.", "success")
+        return redirect(url_for("chain_detail", chain_id=chain.id))
+    return render_template("chain_form.html", chain=None)
+
+
+@app.route("/chains/<int:chain_id>")
+@login_required
+def chain_detail(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
+    intermediates = sorted(chain.intermediates, key=lambda ic: ic.order)
+    cert_count = Certificate.query.filter_by(chain_id=chain_id).count()
+    return render_template("chain_detail.html", chain=chain, intermediates=intermediates, cert_count=cert_count)
+
+
+@app.route("/chains/<int:chain_id>/edit")
+@login_required
+def chain_edit(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
+    return render_template("chain_form.html", chain=chain)
+
+
+@app.route("/chains/<int:chain_id>/update", methods=["POST"])
+@login_required
+def chain_update(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
+    name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
+    if not name:
+        flash("Chain name is required.", "error")
+        return render_template("chain_form.html", chain=chain)
+    dup = CertChain.query.filter(CertChain.name == name, CertChain.id != chain_id).first()
+    if dup:
+        flash(f"A chain named '{name}' already exists.", "error")
+        return render_template("chain_form.html", chain=chain)
+    chain.name = name
+    chain.description = description
+    db.session.commit()
+    flash(f"Chain '{name}' updated.", "success")
+    return redirect(url_for("chain_detail", chain_id=chain_id))
+
+
+@app.route("/chains/<int:chain_id>/delete", methods=["POST"])
+@login_required
+def chain_delete(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
+    Certificate.query.filter_by(chain_id=chain_id).update({"chain_id": None})
+    name = chain.name
+    db.session.delete(chain)
+    db.session.commit()
+    flash(f"Chain '{name}' deleted. Assigned certificates have been unlinked.", "success")
+    return redirect(url_for("chains"))
+
+
+@app.route("/chains/<int:chain_id>/intermediates/new")
+@login_required
+def chain_intermediate_form_new(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
+    return render_template("intermediate_form.html", cert=None, chain=chain,
+                           action=url_for("chain_intermediate_new", chain_id=chain_id))
+
+
+@app.route("/chains/<int:chain_id>/intermediates", methods=["POST"])
+@login_required
+def chain_intermediate_new(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
     name = request.form.get("name", "").strip()
     pem_data = request.form.get("pem_data", "").strip()
     try:
         order = int(request.form.get("order", 0))
     except (ValueError, TypeError):
         order = 0
-
     if not name:
         flash("Name is required.", "error")
-        return redirect(url_for("intermediate_form_new"))
+        return redirect(url_for("chain_intermediate_form_new", chain_id=chain_id))
     if not pem_data:
         flash("PEM data is required.", "error")
-        return redirect(url_for("intermediate_form_new"))
-
+        return redirect(url_for("chain_intermediate_form_new", chain_id=chain_id))
     try:
         x509.load_pem_x509_certificate(pem_data.encode())
     except Exception as e:
         flash(f"Invalid PEM certificate data: {e}", "error")
-        return redirect(url_for("intermediate_form_new"))
-
-    ic = IntermediateCert(name=name, pem_data=pem_data, order=order)
+        return redirect(url_for("chain_intermediate_form_new", chain_id=chain_id))
+    ic = IntermediateCert(name=name, pem_data=pem_data, order=order, chain_id=chain_id)
     db.session.add(ic)
     db.session.commit()
     flash(f"Certificate '{name}' added.", "success")
-    return redirect(url_for("intermediates"))
+    return redirect(url_for("chain_detail", chain_id=chain_id))
 
 
-@app.route("/intermediates/new-form")
+@app.route("/chains/<int:chain_id>/intermediates/<int:ic_id>/edit")
 @login_required
-def intermediate_form_new():
-    return render_template("intermediate_form.html", cert=None, action=url_for("intermediate_new"))
-
-
-@app.route("/intermediates/<int:ic_id>/edit")
-@login_required
-def intermediate_edit(ic_id):
+def chain_intermediate_edit(chain_id, ic_id):
+    chain = CertChain.query.get_or_404(chain_id)
     ic = IntermediateCert.query.get_or_404(ic_id)
-    return render_template("intermediate_form.html", cert=ic, action=url_for("intermediate_update", ic_id=ic_id))
+    return render_template("intermediate_form.html", cert=ic, chain=chain,
+                           action=url_for("chain_intermediate_update", chain_id=chain_id, ic_id=ic_id))
 
 
-@app.route("/intermediates/<int:ic_id>/update", methods=["POST"])
+@app.route("/chains/<int:chain_id>/intermediates/<int:ic_id>/update", methods=["POST"])
 @login_required
-def intermediate_update(ic_id):
+def chain_intermediate_update(chain_id, ic_id):
+    chain = CertChain.query.get_or_404(chain_id)
     ic = IntermediateCert.query.get_or_404(ic_id)
     name = request.form.get("name", "").strip()
     pem_data = request.form.get("pem_data", "").strip()
@@ -1037,42 +1190,39 @@ def intermediate_update(ic_id):
         order = int(request.form.get("order", 0))
     except (ValueError, TypeError):
         order = 0
-
     if not name:
         flash("Name is required.", "error")
-        return redirect(url_for("intermediate_edit", ic_id=ic_id))
+        return redirect(url_for("chain_intermediate_edit", chain_id=chain_id, ic_id=ic_id))
     if not pem_data:
         flash("PEM data is required.", "error")
-        return redirect(url_for("intermediate_edit", ic_id=ic_id))
-
+        return redirect(url_for("chain_intermediate_edit", chain_id=chain_id, ic_id=ic_id))
     try:
         x509.load_pem_x509_certificate(pem_data.encode())
     except Exception as e:
         flash(f"Invalid PEM certificate data: {e}", "error")
-        return redirect(url_for("intermediate_edit", ic_id=ic_id))
-
+        return redirect(url_for("chain_intermediate_edit", chain_id=chain_id, ic_id=ic_id))
     ic.name = name
     ic.pem_data = pem_data
     ic.order = order
     db.session.commit()
     flash(f"Certificate '{name}' updated.", "success")
-    return redirect(url_for("intermediates"))
+    return redirect(url_for("chain_detail", chain_id=chain_id))
 
 
-@app.route("/intermediates/<int:ic_id>/delete", methods=["POST"])
+@app.route("/chains/<int:chain_id>/intermediates/<int:ic_id>/delete", methods=["POST"])
 @login_required
-def intermediate_delete(ic_id):
+def chain_intermediate_delete(chain_id, ic_id):
     ic = IntermediateCert.query.get_or_404(ic_id)
     name = ic.name
     db.session.delete(ic)
     db.session.commit()
     flash(f"Certificate '{name}' deleted.", "success")
-    return redirect(url_for("intermediates"))
+    return redirect(url_for("chain_detail", chain_id=chain_id))
 
 
-@app.route("/intermediates/reorder", methods=["POST"])
+@app.route("/chains/<int:chain_id>/reorder", methods=["POST"])
 @login_required
-def intermediate_reorder():
+def chain_reorder(chain_id):
     data = request.get_json()
     if not data or not isinstance(data, list):
         return {"error": "Invalid data"}, 400
@@ -1084,16 +1234,118 @@ def intermediate_reorder():
     return {"status": "ok"}
 
 
+@app.route("/chains/<int:chain_id>/import", methods=["GET", "POST"])
+@login_required
+def chain_import(chain_id):
+    chain = CertChain.query.get_or_404(chain_id)
+
+    if request.method == "GET":
+        return render_template("chain_import.html", chain=chain)
+
+    # Collect PEM text from file upload or pasted textarea
+    pem_text = ""
+    uploaded = request.files.get("bundle_file")
+    if uploaded and uploaded.filename:
+        try:
+            pem_text = uploaded.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            flash(f"Could not read uploaded file: {e}", "error")
+            return render_template("chain_import.html", chain=chain)
+    else:
+        pem_text = request.form.get("pem_text", "").strip()
+
+    if not pem_text:
+        flash("No PEM data provided.", "error")
+        return render_template("chain_import.html", chain=chain)
+
+    try:
+        pem_blocks = parse_pem_bundle(pem_text)
+    except ValueError as e:
+        flash(str(e), "error")
+        return render_template("chain_import.html", chain=chain)
+
+    # Determine starting order: place imported certs after existing ones
+    existing = IntermediateCert.query.filter_by(chain_id=chain_id).order_by(
+        IntermediateCert.order.desc()
+    ).first()
+    next_order = (existing.order + 1) if existing else 0
+
+    added = 0
+    skipped = []
+    for pem in pem_blocks:
+        try:
+            parsed = x509.load_pem_x509_certificate(pem.encode())
+        except Exception as e:
+            skipped.append(f"(unparseable block: {e})")
+            continue
+
+        # Derive name from CN (fall back to full subject string)
+        try:
+            cn = parsed.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        except (IndexError, Exception):
+            cn = str(parsed.subject)
+
+        # Skip if an identical PEM already exists in this chain
+        already = IntermediateCert.query.filter_by(chain_id=chain_id, pem_data=pem).first()
+        if already:
+            skipped.append(cn)
+            continue
+
+        ic = IntermediateCert(name=cn, pem_data=pem, order=next_order, chain_id=chain_id)
+        db.session.add(ic)
+        next_order += 1
+        added += 1
+
+    db.session.commit()
+
+    if added:
+        flash(f"Imported {added} certificate(s) successfully.", "success")
+    if skipped:
+        flash(f"Skipped {len(skipped)} duplicate/invalid certificate(s): {', '.join(skipped)}", "warning")
+    if not added and not skipped:
+        flash("No certificates were imported.", "warning")
+
+    return redirect(url_for("chain_detail", chain_id=chain_id))
+
+
 # ---------------------------------------------------------------------------
 # App init
 # ---------------------------------------------------------------------------
 
+def _add_column_if_missing(engine, table, column_def):
+    """Add a column to an existing SQLite table if it doesn't already exist."""
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(engine)
+    cols = [c["name"] for c in inspector.get_columns(table)]
+    if column_def.split()[0] not in cols:
+        with engine.connect() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column_def}"))
+            conn.commit()
+
+
 with app.app_context():
     db.create_all()
+    # Ensure new columns exist on databases created before this schema version
+    _add_column_if_missing(db.engine, "intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)")
+    _add_column_if_missing(db.engine, "certificate", "chain_id INTEGER REFERENCES cert_chain(id)")
     if Settings.query.first() is None:
-        default_settings = Settings(key_size=2048)
-        db.session.add(default_settings)
+        db.session.add(Settings(key_size=2048))
         db.session.commit()
+    # Migrate intermediates that pre-date named chains into a "Default Chain"
+    try:
+        orphans = IntermediateCert.query.filter_by(chain_id=None).all()
+        if orphans:
+            default_chain = CertChain.query.filter_by(name="Default Chain").first()
+            if default_chain is None:
+                default_chain = CertChain(name="Default Chain",
+                                          description="Migrated from previous version")
+                db.session.add(default_chain)
+                db.session.flush()
+            for ic in orphans:
+                ic.chain_id = default_chain.id
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5001)

@@ -48,6 +48,14 @@
           <dd>{{ cert.org_name or '—' }}{% if cert.org_unit %} / {{ cert.org_unit }}{% endif %}</dd>
           <dt class="text-muted small">Email</dt>
           <dd>{{ cert.email or '—' }}</dd>
+          <dt class="text-muted small">Chain</dt>
+          <dd>
+            {% if cert.chain %}
+              <span class="badge bg-primary"><i class="bi bi-link-45deg me-1"></i>{{ cert.chain.name }}</span>
+            {% else %}
+              <span class="text-muted">None assigned</span>
+            {% endif %}
+          </dd>
         </dl>
       </div>
       {% set san_list = cert.san_list %}
@@ -65,7 +73,36 @@
   </div>
 </div>
 
-<!-- Section 2: CSR -->
+<!-- Section 2: Chain Assignment -->
+{% if chains %}
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Certificate Chain</h6></div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('certificate_set_chain', cert_id=cert.id) }}" class="d-flex align-items-end gap-3">
+      <div class="flex-grow-1">
+        <label class="form-label fw-semibold mb-1">Assigned Chain</label>
+        <select name="chain_id" class="form-select">
+          <option value="">— None —</option>
+          {% for c in chains %}
+          <option value="{{ c.id }}" {% if cert.chain_id == c.id %}selected{% endif %}>
+            {{ c.name }}{% if c.description %} — {{ c.description }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-floppy-fill me-1"></i>Save
+      </button>
+    </form>
+    <div class="form-text mt-2">
+      The selected chain's intermediate certificates will be included in all downloads for this certificate.
+      <a href="{{ url_for('chains') }}">Manage chains</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Section 4: CSR -->
 {% if cert.csr_pem %}
 <div class="card shadow-sm section-card">
   <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-file-code me-2"></i>Certificate Signing Request (CSR)</h6></div>
@@ -88,20 +125,28 @@
 {% if cert.status == 'pending_signing' %}
 <div class="card shadow-sm section-card">
   <div class="card-header bg-primary text-white">
-    <h6 class="mb-0"><i class="bi bi-upload me-2"></i>Upload Signed Certificate</h6>
+    <h6 class="mb-0"><i class="bi bi-patch-check me-2"></i>Signed Certificate</h6>
   </div>
   <div class="card-body">
-    <p class="text-muted">Paste the signed certificate PEM you received from your Certificate Authority.</p>
-    <form method="post" action="{{ url_for('certificate_upload', cert_id=cert.id) }}">
+    <p class="text-muted">Provide the signed certificate PEM you received from your Certificate Authority — either upload a file or paste the PEM text below.</p>
+    <form method="post" action="{{ url_for('certificate_upload', cert_id=cert.id) }}"
+          enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Upload Certificate File</label>
+        <input type="file" name="cert_file" class="form-control"
+               accept=".pem,.crt,.cer,.txt" />
+        <div class="form-text">Accepted formats: .pem, .crt, .cer</div>
+      </div>
+      <div class="text-center text-muted my-3 fw-semibold small">— or paste below —</div>
       <div class="mb-3">
         <label class="form-label fw-semibold">Signed Certificate PEM</label>
-        <textarea name="signed_cert_pem" class="form-control font-monospace" rows="10"
+        <textarea name="signed_cert_pem" class="form-control font-monospace" rows="8"
                   placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                  required style="font-size:0.8rem;"></textarea>
-        <div class="form-text">Paste only the certificate (not the chain). You can manage intermediate certificates in <a href="{{ url_for('intermediates') }}">Chain Certificates</a>.</div>
+                  style="font-size:0.8rem;"></textarea>
+        <div class="form-text">Paste only the leaf certificate (not the chain). Manage intermediate certificates in <a href="{{ url_for('chains') }}">Chains</a>.</div>
       </div>
       <button type="submit" class="btn btn-success">
-        <i class="bi bi-cloud-upload-fill me-2"></i>Upload Certificate
+        <i class="bi bi-floppy-fill me-2"></i>Save Certificate
       </button>
     </form>
   </div>

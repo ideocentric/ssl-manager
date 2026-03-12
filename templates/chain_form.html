@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+
+    <div class="d-flex align-items-center mb-3">
+      <a href="{{ url_for('chains') }}" class="btn btn-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h4 class="mb-0">
+        {% if chain %}
+          <i class="bi bi-pencil me-2"></i>Edit Chain
+        {% else %}
+          <i class="bi bi-plus-circle me-2"></i>New Chain
+        {% endif %}
+      </h4>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h6 class="mb-0">Chain Details</h6>
+      </div>
+      <div class="card-body p-4">
+        <form method="post"
+              action="{{ url_for('chain_update', chain_id=chain.id) if chain else url_for('chain_new') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required
+                   value="{{ chain.name if chain else '' }}"
+                   placeholder="e.g. GoDaddy G2 2024"
+                   onblur="this.value=this.value.trim()" />
+            <div class="form-text">A descriptive name to identify this chain — include the CA and year if managing multiple generations.</div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Description</label>
+            <input type="text" name="description" class="form-control"
+                   value="{{ chain.description if chain else '' }}"
+                   placeholder="Optional notes, e.g. 'Replaced old chain after intermediate expiry'"
+                   onblur="this.value=this.value.trim()" />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-floppy-fill me-2"></i>{{ 'Save Changes' if chain else 'Create Chain' }}
+          </button>
+          <a href="{{ url_for('chains') }}" class="btn btn-secondary ms-2">Cancel</a>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

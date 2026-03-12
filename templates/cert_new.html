@@ -103,6 +103,24 @@
             </div>
           </div>
 
+          {% if chains %}
+          <hr class="my-4" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Certificate Chain</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Assign Chain</label>
+            <select name="chain_id" class="form-select">
+              <option value="">— None —</option>
+              {% for c in chains %}
+              <option value="{{ c.id }}"
+                {% if renew_from and renew_from.chain_id == c.id %}selected{% endif %}>
+                {{ c.name }}{% if c.description %} — {{ c.description }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Associate this certificate with an intermediate chain for downloads. Can also be set later on the certificate detail page.</div>
+          </div>
+          {% endif %}
+
           <div class="mt-4">
             <button type="submit" class="btn btn-primary btn-lg">
               <i class="bi bi-key-fill me-2"></i>Generate RSA Key &amp; CSR

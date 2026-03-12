@@ -4,12 +4,12 @@
 <div class="row justify-content-center">
   <div class="col-lg-8">
     <div class="card shadow-sm">
-      <div class="card-header bg-dark text-white">
+      <div class="card-header bg-primary text-white">
         <h5 class="mb-0">
           {% if cert %}
-            <i class="bi bi-pencil-fill me-2"></i>Edit Chain Certificate
+            <i class="bi bi-pencil-fill me-2"></i>Edit Certificate — {{ chain.name }}
           {% else %}
-            <i class="bi bi-plus-circle-fill me-2"></i>Add Chain Certificate
+            <i class="bi bi-plus-circle-fill me-2"></i>Add Certificate — {{ chain.name }}
           {% endif %}
         </h5>
       </div>
@@ -73,7 +73,7 @@
             <button type="submit" class="btn btn-primary">
               <i class="bi bi-floppy-fill me-2"></i>{{ 'Save Changes' if cert else 'Add Certificate' }}
             </button>
-            <a href="{{ url_for('intermediates') }}" class="btn btn-secondary ms-2">Cancel</a>
+            <a href="{{ url_for('chain_detail', chain_id=chain.id) }}" class="btn btn-secondary ms-2">Cancel</a>
           </div>
         </form>
       </div>

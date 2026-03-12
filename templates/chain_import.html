@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-cloud-upload me-2"></i>Import Certificate Bundle — {{ chain.name }}</h5>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info d-flex align-items-start mb-4">
+          <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+          <div>
+            Upload a PEM bundle file (e.g. a CA-provided <code>.crt</code> or <code>.pem</code> file containing
+            multiple concatenated certificates) or paste the PEM text below.
+            Each certificate will be imported as a separate entry in the chain, named from its Common Name.
+            Duplicates already present in this chain are skipped automatically.
+          </div>
+        </div>
+
+        <form method="post"
+              action="{{ url_for('chain_import', chain_id=chain.id) }}"
+              enctype="multipart/form-data">
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Upload Bundle File</label>
+            <input type="file" name="bundle_file" class="form-control"
+                   accept=".pem,.crt,.cer,.txt" />
+            <div class="form-text">Accepted formats: .pem, .crt, .cer, .txt containing PEM certificate data.</div>
+          </div>
+
+          <div class="text-center text-muted my-3 fw-semibold">— or —</div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Paste PEM Text</label>
+            <textarea name="pem_text" class="form-control font-monospace" rows="14"
+                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----&#10;-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                      style="font-size:0.8rem;"></textarea>
+            <div class="form-text">
+              Paste one or more PEM certificate blocks. Each
+              <code>-----BEGIN CERTIFICATE-----</code> …
+              <code>-----END CERTIFICATE-----</code> block will be imported as a separate entry.
+            </div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-cloud-upload me-1"></i>Import Certificates
+            </button>
+            <a href="{{ url_for('chain_detail', chain_id=chain.id) }}" class="btn btn-secondary">
+              <i class="bi bi-x-lg me-1"></i>Cancel
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

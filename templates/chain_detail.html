@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-link-45deg me-2"></i>{{ chain.name }}</h2>
+    {% if chain.description %}
+    <p class="text-muted mb-0 mt-1 small">{{ chain.description }}</p>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('chain_intermediate_form_new', chain_id=chain.id) }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Certificate
+    </a>
+    <a href="{{ url_for('chain_import', chain_id=chain.id) }}" class="btn btn-primary">
+      <i class="bi bi-cloud-upload me-1"></i>Import Bundle
+    </a>
+    <a href="{{ url_for('chain_edit', chain_id=chain.id) }}" class="btn btn-secondary">
+      <i class="bi bi-pencil me-1"></i>Edit
+    </a>
+    <a href="{{ url_for('chains') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+  </div>
+</div>
+
+{% if cert_count > 0 %}
+<div class="alert alert-success d-flex align-items-start mb-4">
+  <i class="bi bi-file-earmark-lock2 me-2 mt-1 flex-shrink-0"></i>
+  <div>
+    <strong>{{ cert_count }} SSL certificate(s)</strong> are currently assigned to this chain.
+    Their downloads will include these intermediates.
+  </div>
+</div>
+{% endif %}
+
+<div class="alert alert-info d-flex align-items-start mb-4">
+  <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+  <div>
+    <strong>Certificate Chain Order:</strong>
+    Lower order numbers appear first in the chain (closest to the leaf certificate).
+    Typically: Intermediate CA first (order 0), Root CA last (order 1).
+  </div>
+</div>
+
+{% if intermediates %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0" id="chain-table">
+      <thead>
+        <tr>
+          <th style="width:60px;">Order</th>
+          <th>Name</th>
+          <th>Subject CN</th>
+          <th>Type</th>
+          <th>Expiry</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ic in intermediates %}
+        <tr data-id="{{ ic.id }}">
+          <td class="align-middle">
+            <div class="d-flex align-items-center gap-1">
+              <button class="btn btn-secondary btn-sm py-0 px-1 order-up"
+                      data-id="{{ ic.id }}" title="Move up">
+                <i class="bi bi-chevron-up"></i>
+              </button>
+              <span class="order-badge fw-semibold text-center" style="min-width:1.5rem;">{{ ic.order }}</span>
+              <button class="btn btn-secondary btn-sm py-0 px-1 order-down"
+                      data-id="{{ ic.id }}" title="Move down">
+                <i class="bi bi-chevron-down"></i>
+              </button>
+            </div>
+          </td>
+          <td class="align-middle fw-semibold">{{ ic.name }}</td>
+          <td class="align-middle"><code>{{ ic.subject }}</code></td>
+          <td class="align-middle">
+            {% if ic.is_root %}
+              <span class="badge bg-dark">Root CA</span>
+            {% else %}
+              <span class="badge bg-secondary">Intermediate CA</span>
+            {% endif %}
+          </td>
+          <td class="align-middle">
+            {% if ic.expiry_date %}
+              <span class="expiry-date" data-expiry="{{ ic.expiry_date.isoformat() }}">
+                {{ ic.expiry_date.strftime('%Y-%m-%d') }}
+              </span>
+            {% else %}
+              <span class="text-muted">Unknown</span>
+            {% endif %}
+          </td>
+          <td class="align-middle text-end">
+            <a href="{{ url_for('chain_intermediate_edit', chain_id=chain.id, ic_id=ic.id) }}"
+               class="btn btn-sm btn-secondary me-1">
+              <i class="bi bi-pencil me-1"></i>Edit
+            </a>
+            <form action="{{ url_for('chain_intermediate_delete', chain_id=chain.id, ic_id=ic.id) }}"
+                  method="post" class="d-inline"
+                  onsubmit="return confirm('Delete certificate \'{{ ic.name }}\'?')">
+              <button type="submit" class="btn btn-sm btn-danger">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-diagram-2 display-4 text-muted mb-3 d-block"></i>
+    <h5 class="text-muted">No certificates in this chain yet</h5>
+    <p class="text-muted mb-4">Add intermediate and root CA certificates to build the trust chain.</p>
+    <a href="{{ url_for('chain_intermediate_form_new', chain_id=chain.id) }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Certificate
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.expiry-date').forEach(function (el) {
+    const expiry = new Date(el.dataset.expiry);
+    const diffDays = Math.floor((expiry - new Date()) / 86400000);
+    const dateStr = el.textContent.trim();
+    if (diffDays < 0) {
+      el.innerHTML = '<span class="text-danger fw-semibold"><i class="bi bi-x-circle me-1"></i>' + dateStr + ' (Expired)</span>';
+    } else if (diffDays < 30) {
+      el.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>' + dateStr + ' (' + diffDays + 'd)</span>';
+    } else if (diffDays < 90) {
+      el.innerHTML = '<span class="text-warning"><i class="bi bi-clock me-1"></i>' + dateStr + ' (' + diffDays + 'd)</span>';
+    } else {
+      el.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>' + dateStr + ' (' + diffDays + 'd)</span>';
+    }
+  });
+
+  function getRows() { return Array.from(document.querySelectorAll('#chain-table tbody tr')); }
+  function updateBadges(rows) {
+    rows.forEach(function (row, idx) {
+      const b = row.querySelector('.order-badge');
+      if (b) b.textContent = idx;
+    });
+  }
+  function saveOrder() {
+    const payload = getRows().map(function (row, idx) {
+      return { id: parseInt(row.dataset.id), order: idx };
+    });
+    fetch('{{ url_for("chain_reorder", chain_id=chain.id) }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+  document.querySelectorAll('.order-up').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const row = btn.closest('tr'), prev = row.previousElementSibling;
+      if (prev) { row.parentNode.insertBefore(row, prev); updateBadges(getRows()); saveOrder(); }
+    });
+  });
+  document.querySelectorAll('.order-down').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const row = btn.closest('tr'), next = row.nextElementSibling;
+      if (next) { row.parentNode.insertBefore(next, row); updateBadges(getRows()); saveOrder(); }
+    });
+  });
+});
+</script>
+{% endblock %}
