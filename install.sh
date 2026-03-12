@@ -32,7 +32,7 @@ SERVICE_USER="${APP_NAME}"
 NGINX_CONF="/etc/nginx/sites-available/${APP_NAME}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DEFAULT_PORT=5000
+DEFAULT_PORT=5001
 DEFAULT_WORKERS=2
 
 # ---------------------------------------------------------------------------
@@ -166,6 +166,7 @@ copy_app_files() {
     cp "${SCRIPT_DIR}/app.py"           "${APP_DIR}/"
     cp "${SCRIPT_DIR}/requirements.txt" "${APP_DIR}/"
     cp -r "${SCRIPT_DIR}/templates"     "${APP_DIR}/"
+    cp -r "${SCRIPT_DIR}/static"        "${APP_DIR}/"
     chown -R root:"${SERVICE_USER}" "${APP_DIR}"
     chmod -R 750 "${APP_DIR}"
 }

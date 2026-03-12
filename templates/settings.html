@@ -26,32 +26,38 @@
             <div class="col-md-3">
               <label class="form-label fw-semibold">Country <span class="text-muted">(2 chars)</span></label>
               <input type="text" name="country" class="form-control" maxlength="2"
-                     value="{{ settings.country or '' }}" placeholder="US" />
+                     value="{{ settings.country or '' }}" placeholder="US"
+                     onblur="this.value=this.value.trim()" />
             </div>
             <div class="col-md-9">
               <label class="form-label fw-semibold">State / Province</label>
               <input type="text" name="state" class="form-control"
-                     value="{{ settings.state or '' }}" placeholder="California" />
+                     value="{{ settings.state or '' }}" placeholder="California"
+                     onblur="this.value=this.value.trim()" />
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">City / Locality</label>
               <input type="text" name="city" class="form-control"
-                     value="{{ settings.city or '' }}" placeholder="San Francisco" />
+                     value="{{ settings.city or '' }}" placeholder="San Francisco"
+                     onblur="this.value=this.value.trim()" />
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Organization Name</label>
               <input type="text" name="org_name" class="form-control"
-                     value="{{ settings.org_name or '' }}" placeholder="Acme Corp" />
+                     value="{{ settings.org_name or '' }}" placeholder="Acme Corp"
+                     onblur="this.value=this.value.trim()" />
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Organizational Unit</label>
               <input type="text" name="org_unit" class="form-control"
-                     value="{{ settings.org_unit or '' }}" placeholder="IT Department" />
+                     value="{{ settings.org_unit or '' }}" placeholder="IT Department"
+                     onblur="this.value=this.value.trim()" />
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Email Address</label>
               <input type="email" name="email" class="form-control"
-                     value="{{ settings.email or '' }}" placeholder="admin@example.com" />
+                     value="{{ settings.email or '' }}" placeholder="admin@example.com"
+                     onblur="this.value=this.value.trim()" />
             </div>
           </div>
 

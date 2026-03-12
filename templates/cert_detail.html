@@ -65,10 +65,12 @@
 <div class="card shadow-sm section-card">
   <div class="card-header"><h6 class="mb-0"><i class="bi bi-file-code me-2"></i>Certificate Signing Request (CSR)</h6></div>
   <div class="card-body">
+    {% if not cert.signed_cert_pem %}
     <div class="alert alert-info d-flex align-items-start mb-3">
       <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
       <div>Submit this CSR to your Certificate Authority. Once they return the signed certificate PEM, upload it in the section below.</div>
     </div>
+    {% endif %}
     <pre class="pem-block">{{ cert.csr_pem }}</pre>
     <a href="{{ url_for('download_csr', cert_id=cert.id) }}" class="btn btn-outline-primary mt-2">
       <i class="bi bi-download me-2"></i>Download CSR
@@ -189,6 +191,19 @@
         </div>
       </div>
 
+      <!-- DER -->
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-secondary">
+          <div class="card-body d-flex flex-column">
+            <h6 class="card-title"><i class="bi bi-file-binary me-2 text-dark"></i>DER (Binary)</h6>
+            <p class="card-text text-muted small flex-grow-1">Binary-encoded certificate only. No private key, no chain. Used by some Java and Windows tools.</p>
+            <a href="{{ url_for('download_der', cert_id=cert.id) }}" class="btn btn-outline-dark btn-sm">
+              <i class="bi bi-download me-1"></i>Download .der
+            </a>
+          </div>
+        </div>
+      </div>
+
       <!-- PKCS#12 -->
       <div class="col-md-6 col-lg-4">
         <div class="card h-100 border-warning">
@@ -197,7 +212,15 @@
             <p class="card-text text-muted small flex-grow-1">Password-protected bundle with private key + certificate chain. Used by IIS, Windows, Java, etc.</p>
             <form method="post" action="{{ url_for('download_pkcs12', cert_id=cert.id) }}" class="mt-auto">
               <div class="input-group input-group-sm mb-2">
-                <input type="password" name="password" class="form-control" placeholder="Password (optional)" />
+                <span class="input-group-text" style="min-width:5rem;">Name</span>
+                <input type="text" name="friendly_name" class="form-control"
+                       value="{{ cert.safe_domain }}"
+                       placeholder="friendly name"
+                       onblur="this.value=this.value.trim()" />
+              </div>
+              <div class="input-group input-group-sm mb-2">
+                <span class="input-group-text" style="min-width:5rem;">Password</span>
+                <input type="password" name="password" class="form-control" placeholder="optional" />
               </div>
               <button type="submit" class="btn btn-outline-warning btn-sm w-100">
                 <i class="bi bi-download me-1"></i>Download .p12
@@ -215,11 +238,15 @@
             <p class="card-text text-muted small flex-grow-1">Java KeyStore format for Java application servers (Tomcat, Spring Boot, etc.).</p>
             <form method="post" action="{{ url_for('download_jks', cert_id=cert.id) }}" class="mt-auto">
               <div class="input-group input-group-sm mb-2">
-                <input type="password" name="password" class="form-control" placeholder="Store password" value="changeit" />
+                <span class="input-group-text" style="min-width:5rem;">Name</span>
+                <input type="text" name="alias" class="form-control"
+                       value="{{ cert.safe_domain }}"
+                       placeholder="certificate"
+                       onblur="this.value=this.value.trim()" />
               </div>
               <div class="input-group input-group-sm mb-2">
-                <span class="input-group-text">Alias</span>
-                <input type="text" name="alias" class="form-control" value="certificate" placeholder="certificate" />
+                <span class="input-group-text" style="min-width:5rem;">Password</span>
+                <input type="password" name="password" class="form-control" placeholder="changeit" value="changeit" />
               </div>
               <button type="submit" class="btn btn-outline-info btn-sm w-100">
                 <i class="bi bi-download me-1"></i>Download .jks

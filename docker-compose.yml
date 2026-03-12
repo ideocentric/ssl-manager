@@ -2,7 +2,7 @@ services:
   ssl-manager:
     build: .
     ports:
-      - "5001:5000"
+      - "5001:5001"
     volumes:
       - ssl-manager-db:/app/instance
     environment:

@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -195,6 +196,16 @@ class Certificate(db.Model):
             return "active"
         return self.status
 
+    @property
+    def safe_domain(self) -> str:
+        """Domain name safe for use in filenames and keystore aliases.
+
+        Replaces wildcard prefix and any characters illegal in filenames:
+            *.example.com  →  star.example.com
+            www.example.com → www.example.com
+        """
+        return normalize_alias(self.domain)
+
 
 # ---------------------------------------------------------------------------
 # Crypto helpers
@@ -266,7 +277,20 @@ def parse_cert_expiry(cert_pem):
     return exp
 
 
-def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password):
+def normalize_alias(domain: str) -> str:
+    """Convert a domain name to a safe alias string.
+
+    Examples:
+        *.ideocentric.com  → star.ideocentric.com
+        www.example.com    → www.example.com
+    """
+    alias = domain.replace("*.", "star.").replace("*", "star")
+    alias = re.sub(r"[^a-zA-Z0-9.\-]", "-", alias)
+    alias = alias.strip("-")
+    return alias or "certificate"
+
+
+def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password, name=None):
     """Create PKCS#12 bundle. Returns bytes."""
     cert = x509.load_pem_x509_certificate(cert_pem.encode())
     key = serialization.load_pem_private_key(key_pem.encode(), password=None)
@@ -282,8 +306,11 @@ def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password):
     if isinstance(password, str):
         password = password.encode()
 
+    if isinstance(name, str):
+        name = name.encode()
+
     p12_bytes = pkcs12.serialize_key_and_certificates(
-        name=None,
+        name=name,
         key=key,
         cert=cert,
         cas=cas if cas else None,
@@ -761,7 +788,7 @@ def download_csr(cert_id):
         buf,
         mimetype="application/x-pem-file",
         as_attachment=True,
-        download_name=f"{cert.domain}.csr",
+        download_name=f"{cert.safe_domain}.csr",
     )
 
 
@@ -784,7 +811,7 @@ def download_fullchain(cert_id):
         buf,
         mimetype="application/x-pem-file",
         as_attachment=True,
-        download_name=f"{cert.domain}-fullchain.pem",
+        download_name=f"{cert.safe_domain}-fullchain.pem",
     )
 
 
@@ -810,7 +837,7 @@ def download_components(cert_id):
         buf,
         mimetype="application/zip",
         as_attachment=True,
-        download_name=f"{cert.domain}-certs.zip",
+        download_name=f"{cert.safe_domain}-certs.zip",
     )
 
 
@@ -822,13 +849,15 @@ def download_pkcs12(cert_id):
         flash("Certificate not yet signed.", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
-    password = request.form.get("password", "")
+    password      = request.form.get("password", "")
+    friendly_name = request.form.get("friendly_name", "").strip() or normalize_alias(cert.domain)
 
     intermediates = get_intermediates_ordered()
     intermediates_pems = [ic.pem_data for ic in intermediates]
 
     try:
-        p12_bytes = create_pkcs12(cert.signed_cert_pem, cert.private_key_pem, intermediates_pems, password)
+        p12_bytes = create_pkcs12(cert.signed_cert_pem, cert.private_key_pem, intermediates_pems, password,
+                                   name=friendly_name)
     except Exception as e:
         flash(f"Error creating PKCS#12: {e}", "error")
         return redirect(url_for("certificate_detail", cert_id=cert_id))
@@ -838,7 +867,7 @@ def download_pkcs12(cert_id):
         buf,
         mimetype="application/x-pkcs12",
         as_attachment=True,
-        download_name=f"{cert.domain}.p12",
+        download_name=f"{cert.safe_domain}.p12",
     )
 
 
@@ -851,7 +880,7 @@ def download_jks(cert_id):
         return redirect(url_for("certificate_detail", cert_id=cert_id))
 
     password = request.form.get("password", "changeit")
-    alias = request.form.get("alias", "certificate").strip() or "certificate"
+    alias = request.form.get("alias", "").strip() or normalize_alias(cert.domain)
 
     intermediates = get_intermediates_ordered()
     intermediates_pems = [ic.pem_data for ic in intermediates]
@@ -867,7 +896,7 @@ def download_jks(cert_id):
         buf,
         mimetype="application/octet-stream",
         as_attachment=True,
-        download_name=f"{cert.domain}.jks",
+        download_name=f"{cert.safe_domain}.jks",
     )
 
 
@@ -892,7 +921,26 @@ def download_p7b(cert_id):
         buf,
         mimetype="application/x-pkcs7-certificates",
         as_attachment=True,
-        download_name=f"{cert.domain}.p7b",
+        download_name=f"{cert.safe_domain}.p7b",
+    )
+
+
+@app.route("/certificates/<int:cert_id>/download/der")
+@login_required
+def download_der(cert_id):
+    cert = Certificate.query.get_or_404(cert_id)
+    if not cert.signed_cert_pem:
+        flash("Certificate not yet signed.", "error")
+        return redirect(url_for("certificate_detail", cert_id=cert_id))
+
+    x509_cert = x509.load_pem_x509_certificate(cert.signed_cert_pem.encode())
+    der_bytes = x509_cert.public_bytes(serialization.Encoding.DER)
+    buf = BytesIO(der_bytes)
+    return send_file(
+        buf,
+        mimetype="application/x-x509-ca-cert",
+        as_attachment=True,
+        download_name=f"{cert.safe_domain}.der",
     )
 
 
@@ -1040,4 +1088,4 @@ with app.app_context():
         db.session.commit()
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5001)

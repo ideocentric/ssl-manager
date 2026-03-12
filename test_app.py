@@ -31,6 +31,7 @@ from app import (
     create_pkcs12,
     db,
     generate_key_and_csr,
+    normalize_alias,
     parse_cert_expiry,
 )
 
@@ -747,6 +748,38 @@ class TestDownloadJks:
         assert resp.status_code == 302
 
 
+class TestDownloadDer:
+    def test_returns_bytes(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/download/der")
+        assert resp.status_code == 200
+        assert len(resp.data) > 0
+
+    def test_correct_filename(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/download/der")
+        assert "example.com.der" in resp.headers["Content-Disposition"]
+
+    def test_mimetype(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/download/der")
+        assert resp.content_type == "application/x-x509-ca-cert"
+
+    def test_is_valid_der(self, client, cert_record):
+        """DER bytes should parse back to a valid certificate."""
+        from cryptography import x509 as cx509
+        resp = client.get(f"/certificates/{cert_record}/download/der")
+        cert = cx509.load_der_x509_certificate(resp.data)
+        assert cert.subject is not None
+
+    def test_unsigned_cert_redirects(self, client):
+        resp = client.post("/certificates/new", data={
+            "domain": "noder.example.com", "san_domains": "",
+            "key_size": "1024", "country": "", "state": "", "city": "",
+            "org_name": "", "org_unit": "", "email": "",
+        }, follow_redirects=False)
+        cert_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+        resp = client.get(f"/certificates/{cert_id}/download/der")
+        assert resp.status_code == 302
+
+
 class TestSettingsRoute:
     def test_get_returns_200(self, client):
         resp = client.get("/settings")
@@ -1024,3 +1057,21 @@ class TestUserManagement:
             "active": "1",
         }, follow_redirects=True)
         assert b"last active superadmin" in resp.data.lower()
+
+
+class TestNormalizeAlias:
+    def test_wildcard_dot(self):
+        assert normalize_alias("*.ideocentric.com") == "star.ideocentric.com"
+
+    def test_wildcard_only(self):
+        assert normalize_alias("*") == "star"
+
+    def test_plain_domain(self):
+        assert normalize_alias("www.example.com") == "www.example.com"
+
+    def test_unsafe_characters_replaced(self):
+        result = normalize_alias("my domain.com")
+        assert " " not in result
+
+    def test_empty_falls_back(self):
+        assert normalize_alias("") == "certificate"

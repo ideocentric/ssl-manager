@@ -27,7 +27,8 @@
             <label class="form-label fw-semibold">Certificate Name <span class="text-danger">*</span></label>
             <input type="text" name="name" class="form-control" required
                    value="{{ cert.name if cert else '' }}"
-                   placeholder="e.g., My Intermediate CA, Let's Encrypt R3, DigiCert CA" />
+                   placeholder="e.g., My Intermediate CA, Let's Encrypt R3, DigiCert CA"
+                   onblur="this.value=this.value.trim()" />
             <div class="form-text">A descriptive name to identify this certificate.</div>
           </div>
 

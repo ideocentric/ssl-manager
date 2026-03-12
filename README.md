@@ -99,7 +99,7 @@ The installer is interactive and will prompt for:
 
 | Prompt | Default | Notes |
 |---|---|---|
-| Listen port | `5000` | gunicorn binds to `127.0.0.1:<port>` |
+| Listen port | `5001` | gunicorn binds to `127.0.0.1:<port>` |
 | Worker processes | `2` | gunicorn workers; increase for higher load |
 | Secret key | auto-generated | Used to sign Flask sessions |
 | nginx reverse proxy | yes | Exposes the app on port 80 |
@@ -165,7 +165,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The app starts at **http://localhost:5000**
+The app starts at **http://localhost:5001**
 
 ---
 
@@ -218,7 +218,7 @@ Edit `docker-compose.yml` and change the left side of the port mapping:
 
 ```yaml
 ports:
-  - "8080:5000"   # app will be at http://localhost:8080
+  - "8080:5001"   # app will be at http://localhost:8080
 ```
 
 ### Set a Custom Secret Key

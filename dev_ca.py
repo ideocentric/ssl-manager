@@ -257,9 +257,10 @@ def cmd_sign(args):
     signed_cert = builder.sign(int_key, hashes.SHA256())
     signed_pem  = _pem(signed_cert)
 
-    cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-    domain   = cn_attrs[0].value if cn_attrs else "unknown"
-    out_path = SIGNED_DIR / f"{domain}.crt"
+    cn_attrs    = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    domain      = cn_attrs[0].value if cn_attrs else "unknown"
+    safe_domain = domain.replace("*.", "star.").replace("*", "star")
+    out_path    = SIGNED_DIR / f"{safe_domain}.crt"
     SIGNED_DIR.mkdir(exist_ok=True)
     out_path.write_text(signed_pem)
 
