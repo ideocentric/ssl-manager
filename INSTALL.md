@@ -11,7 +11,7 @@
 
 Cloud deployments (AWS and Azure) require Terraform and the relevant cloud CLI. See [Cloud Deployment Prerequisites](#cloud-deployment-prerequisites) for installation instructions covering macOS, Linux, and Windows — including [SSH key generation](#ssh-key-pair) for all platforms and [server-side user management](#managing-ssh-users-on-the-server).
 
-All production methods (bare metal, AWS, Azure) share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [SYSTEM_REQUIREMENTS.md](SYSTEM_REQUIREMENTS.md) for hardware sizing guidance.
+All production methods (bare metal, AWS, Azure) share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [SYSTEM_REQUIREMENTS.md](REQUIREMENTS.md) for hardware sizing guidance.
 
 ---
 
@@ -814,4 +814,4 @@ This deletes the home directory and `authorized_keys` file, immediately terminat
 | **Existing account** | Prefer if you have AWS credits or consolidated billing | Prefer if you have Azure credits or EA |
 | **Admin username** | `ubuntu` (fixed by AMI) | Configurable (default: `sslmgr`) |
 
-See [SYSTEM_REQUIREMENTS.md](SYSTEM_REQUIREMENTS.md) for full hardware sizing rationale and a complete provider comparison table.
+See [SYSTEM_REQUIREMENTS.md](REQUIREMENTS.md) for full hardware sizing rationale and a complete provider comparison table.
