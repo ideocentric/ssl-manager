@@ -6,29 +6,142 @@ This document walks through the complete certificate lifecycle from first login 
 
 ## Table of Contents
 
-1. [First-Run Setup](#1-first-run-setup)
-2. [Configure Certificate Profiles](#2-configure-certificate-profiles)
-3. [Set Up Certificate Chains](#3-set-up-certificate-chains)
-   - [Testing: Local Dev CA](#31-testing-with-the-local-dev-ca)
-   - [Production: Real CA Intermediates](#32-production-real-ca-intermediates)
-4. [Browse and Search Certificates](#4-browse-and-search-certificates)
-5. [Create a New Certificate](#5-create-a-new-certificate)
-6. [Sign the CSR](#6-sign-the-csr)
-   - [Testing: Sign with dev_ca.py](#61-testing-sign-with-dev_capy)
-   - [Production: Submit to a Real CA](#62-production-submit-to-a-real-ca)
-7. [Upload the Signed Certificate](#7-upload-the-signed-certificate)
-8. [Export Formats](#8-export-formats)
-9. [Verification](#9-verification)
-   - [Component ZIP / PEM files](#91-component-zip--pem-files)
-   - [Full Chain PEM](#92-full-chain-pem)
-   - [PKCS#12 / PFX](#93-pkcs12--pfx)
-   - [JKS](#94-jks)
-   - [P7B](#95-p7b)
-10. [User Management](#10-user-management)
+1. [Docker Development Environment](#1-docker-development-environment)
+   - [Starting the stack](#11-starting-the-stack)
+   - [Testing backups and audit log](#12-testing-backups-and-audit-log)
+   - [Common Docker commands](#13-common-docker-commands)
+2. [First-Run Setup](#2-first-run-setup)
+3. [Configure Certificate Profiles](#3-configure-certificate-profiles)
+4. [Set Up Certificate Chains](#4-set-up-certificate-chains)
+   - [Testing: Local Dev CA](#41-testing-with-the-local-dev-ca)
+   - [Production: Real CA Intermediates](#42-production-real-ca-intermediates)
+5. [Browse and Search Certificates](#5-browse-and-search-certificates)
+6. [Create a New Certificate](#6-create-a-new-certificate)
+7. [Sign the CSR](#7-sign-the-csr)
+   - [Testing: Sign with dev_ca.py](#71-testing-sign-with-dev_capy)
+   - [Production: Submit to a Real CA](#72-production-submit-to-a-real-ca)
+8. [Upload the Signed Certificate](#8-upload-the-signed-certificate)
+9. [Export Formats](#9-export-formats)
+10. [Verification](#10-verification)
+    - [Component ZIP / PEM files](#101-component-zip--pem-files)
+    - [Full Chain PEM](#102-full-chain-pem)
+    - [PKCS#12 / PFX](#103-pkcs12--pfx)
+    - [JKS](#104-jks)
+    - [P7B](#105-p7b)
+11. [User Management](#11-user-management)
 
 ---
 
-## 1. First-Run Setup
+## 1. Docker Development Environment
+
+Use the Docker Compose stack for all local development and feature testing. It runs the Flask app and, when using the test overlay, a backup-test service that exercises the backup and audit log pipeline.
+
+### 1.1 Starting the stack
+
+**App only** (no backup service):
+
+```bash
+docker compose up --build
+```
+
+The app is available at `http://localhost:5001`.
+
+**App + backup test service** (runs `backup.sh` immediately, then every hour):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.test.yml up --build
+```
+
+The backup-test service waits 10 seconds after startup (to let the app initialise and create the database), then runs a backup automatically. Subsequent runs occur every hour.
+
+> **First run only:** open `http://localhost:5001`, complete the first-run setup to create the superadmin account, then log in. The backup-test container will retry until the database exists.
+
+### 1.2 Testing backups and audit log
+
+**Watch backup output live:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.test.yml logs -f backup-test
+```
+
+A successful run produces output like:
+
+```
+backup-test-1  | [backup-test] Running backup at Thu Mar 13 02:00:10 UTC 2026
+backup-test-1  | [+] Checkpointing WAL…
+backup-test-1  | [+] Backing up /app/instance/ssl_manager.db → /var/backups/ssl-manager/ssl_manager_2026-03-13_020010.db.gz…
+backup-test-1  | [+] Backup complete: /var/backups/ssl-manager/ssl_manager_2026-03-13_020010.db.gz (48K)
+backup-test-1  | [+] Retaining backups from the last 7 day(s) in /var/backups/ssl-manager.
+backup-test-1  | [+] Done.
+backup-test-1  | [backup-test] Done. Next run in 1 hour.
+```
+
+**Verify the audit log entry:**
+
+1. Log in as superadmin and open **Audit Log** in the navbar.
+2. The most recent entry should show:
+   - **User:** `system`
+   - **Action:** `backup` (with an archive icon)
+   - **Resource:** `database`
+   - **Result:** `success`
+   - **Detail:** `file=ssl_manager_<timestamp>.db.gz size=<N>K days=7 pruned=0`
+3. System-initiated rows appear with a light blue background to distinguish them from user actions.
+
+**Trigger an immediate backup without waiting for the hour:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.test.yml \
+  exec backup-test bash /app/backup.sh \
+    --db   /app/instance/ssl_manager.db \
+    --dest /var/backups/ssl-manager \
+    --days 7
+```
+
+**List backup archives stored in the container volume:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.test.yml \
+  exec backup-test ls -lh /var/backups/ssl-manager/
+```
+
+**Inspect a backup archive** (decompress in place to verify it is a valid SQLite file):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.test.yml \
+  exec backup-test bash -c \
+    "gunzip -c /var/backups/ssl-manager/ssl_manager_<timestamp>.db.gz \
+     | sqlite3 /dev/stdin 'PRAGMA integrity_check;'"
+```
+
+### 1.3 Common Docker commands
+
+```bash
+# Rebuild after code changes
+docker compose -f docker-compose.yml -f docker-compose.test.yml up --build
+
+# Stop everything and remove containers (volumes are preserved)
+docker compose -f docker-compose.yml -f docker-compose.test.yml down
+
+# Remove containers AND volumes (full reset — database is wiped)
+docker compose -f docker-compose.yml -f docker-compose.test.yml down -v
+
+# Open a shell in the running app container
+docker compose exec ssl-manager bash
+
+# Open a shell in the backup-test container
+docker compose -f docker-compose.yml -f docker-compose.test.yml exec backup-test bash
+
+# Tail all service logs together
+docker compose -f docker-compose.yml -f docker-compose.test.yml logs -f
+
+# Check database integrity from outside the app
+docker compose exec ssl-manager \
+  sqlite3 /app/instance/ssl_manager.db "PRAGMA integrity_check;"
+```
+
+---
+
+## 2. First-Run Setup
 
 On the very first visit the app detects that no users exist and redirects to `/setup`.
 
@@ -47,7 +160,7 @@ You are logged in automatically and land on the **Certificates** page. This acco
 
 ---
 
-## 2. Configure Certificate Profiles
+## 3. Configure Certificate Profiles
 
 **Navigate:** Navbar → **Profiles**
 
@@ -91,7 +204,7 @@ The last remaining profile cannot be deleted. All others can be removed at any t
 
 ---
 
-## 3. Set Up Certificate Chains
+## 4. Set Up Certificate Chains
 
 **Navigate:** Navbar → **Chains**
 
@@ -126,7 +239,7 @@ If your CA provides a bundle file containing multiple certificates in a single P
 
 When creating a certificate you select which chain to assign. The assignment can also be changed later from the Certificate Detail page. One chain can be shared by many certificates. When you rotate to a new CA, create a new chain, point new certificates at it, and leave existing certificates on the old chain.
 
-### 3.1 Testing with the Local Dev CA
+### 4.1 Testing with the Local Dev CA
 
 The `dev_ca.py` script creates a two-tier hierarchy (root → intermediate) that mirrors a real CA.
 
@@ -157,7 +270,7 @@ In the app, create a chain under **Chains → New Chain**, then on the Chain Det
 
 The **Chain Detail** page now shows both entries with their subject, expiry, and CA type.
 
-### 3.2 Production: Real CA Intermediates
+### 4.2 Production: Real CA Intermediates
 
 When using a CA such as GoDaddy, DigiCert, or Sectigo:
 
@@ -175,7 +288,7 @@ When using a CA such as GoDaddy, DigiCert, or Sectigo:
 
 ---
 
-## 4. Browse and Search Certificates
+## 5. Browse and Search Certificates
 
 **Navigate:** Navbar → **Certificates**
 
@@ -202,7 +315,7 @@ A counter on the right side of the search bar shows **N of M certificates**, ref
 
 ---
 
-## 5. Create a New Certificate
+## 6. Create a New Certificate
 
 **Navigate:** Navbar → **Certificates** → **New Certificate**
 
@@ -231,11 +344,11 @@ The app:
 
 ---
 
-## 6. Sign the CSR
+## 7. Sign the CSR
 
 On the **Certificate Detail** page, the CSR is displayed in the **Certificate Signing Request** section.
 
-### 6.1 Testing: Sign with dev_ca.py
+### 7.1 Testing: Sign with dev_ca.py
 
 ```bash
 # Download the CSR from the Certificate Detail page (Download CSR button)
@@ -250,7 +363,7 @@ The signed certificate PEM is printed to the terminal and saved to `dev-ca/signe
 python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 ```
 
-### 6.2 Production: Submit to a Real CA
+### 7.2 Production: Submit to a Real CA
 
 1. On the **Certificate Detail** page click **Download CSR** to save the `.csr` file.
 2. Log in to your CA's portal (GoDaddy, DigiCert, Sectigo, etc.).
@@ -262,7 +375,7 @@ python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 
 ---
 
-## 7. Upload the Signed Certificate
+## 8. Upload the Signed Certificate
 
 **Navigate:** Certificate Detail page → **Upload Signed Certificate** section
 
@@ -288,7 +401,7 @@ The **Downloads** section is now unlocked.
 
 ---
 
-## 8. Export Formats
+## 9. Export Formats
 
 All download options appear in the **Downloads** section of the Certificate Detail page. The chain certificates loaded in Step 3 are automatically included in every bundled format.
 
@@ -390,11 +503,11 @@ Contains: signed certificate + all intermediates in PKCS#7 DER format. **Does no
 
 ---
 
-## 9. Verification
+## 10. Verification
 
 Use these commands to inspect and verify each format after downloading. Replace filenames with your actual domain.
 
-### 9.1 Component ZIP / PEM files
+### 10.1 Component ZIP / PEM files
 
 **Inspect the certificate:**
 ```bash
@@ -428,7 +541,7 @@ This lists every certificate in the chain with its subject and issuer.
 
 ---
 
-### 9.2 Full Chain PEM
+### 10.2 Full Chain PEM
 
 **Split and inspect each cert** (the file contains key + cert + intermediates concatenated):
 ```bash
@@ -441,7 +554,7 @@ openssl x509 -in www.example.com-fullchain.pem -text -noout
 
 ---
 
-### 9.3 PKCS#12 / PFX
+### 10.3 PKCS#12 / PFX
 
 **List contents:**
 ```bash
@@ -470,7 +583,7 @@ openssl rsa  -noout -modulus -in extracted_key.pem  | md5sum
 
 ---
 
-### 9.4 JKS
+### 10.4 JKS
 
 Requires the Java `keytool` utility (included with any JDK).
 
@@ -493,7 +606,7 @@ keytool -list -v -keystore www.example.com.jks -storepass changeit \
 
 ---
 
-### 9.5 P7B
+### 10.5 P7B
 
 **List all certificates in the bundle:**
 ```bash
@@ -512,7 +625,7 @@ openssl x509  -in bundle.pem -text -noout
 
 ---
 
-## 10. User Management
+## 11. User Management
 
 User management is available to **superadmin** accounts only.
 

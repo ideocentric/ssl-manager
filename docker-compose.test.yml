@@ -1,0 +1,47 @@
+# docker-compose.test.yml — Rapid backup test overlay
+#
+# Adds a backup-test service that runs backup.sh immediately on startup, then
+# repeats every hour.  Audit log entries appear in the app's Audit Log page.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up --build
+#
+# To trigger a backup manually while running:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
+#     exec backup-test bash /app/backup.sh \
+#       --db /app/instance/ssl_manager.db \
+#       --dest /var/backups/ssl-manager \
+#       --days 7
+#
+# To watch backup logs live:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml logs -f backup-test
+
+services:
+  backup-test:
+    build: .
+    command:
+      - bash
+      - -c
+      - |
+        echo '[backup-test] Starting — first backup in 10 seconds...'
+        sleep 10
+        while true; do
+          echo "[backup-test] Running backup at $(date)"
+          bash /app/backup.sh \
+            --db   /app/instance/ssl_manager.db \
+            --dest /var/backups/ssl-manager \
+            --days 7
+          echo '[backup-test] Done. Next run in 1 hour.'
+          sleep 3600
+        done
+    volumes:
+      # Share the same DB volume as the main app
+      - ssl-manager-db:/app/instance
+      # Persist backup archives between restarts
+      - ssl-manager-backups:/var/backups/ssl-manager
+    depends_on:
+      - ssl-manager
+    restart: unless-stopped
+
+volumes:
+  ssl-manager-backups:

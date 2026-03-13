@@ -32,6 +32,8 @@ LOG_DIR="/var/log/ssl-manager"
 CONF_DIR="/etc/ssl-manager"
 ENV_FILE="${CONF_DIR}/env"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+BACKUP_SERVICE_FILE="/etc/systemd/system/${APP_NAME}-backup.service"
+BACKUP_TIMER_FILE="/etc/systemd/system/${APP_NAME}-backup.timer"
 SERVICE_USER="${APP_NAME}"
 SOCKET_PATH="/run/ssl-manager/ssl-manager.sock"
 NGINX_CONF="/etc/nginx/sites-available/${APP_NAME}"
@@ -81,10 +83,14 @@ do_uninstall() {
     echo
     confirm "Proceed with uninstall?" n || { info "Aborted."; exit 0; }
 
+    systemctl is-active  --quiet "${APP_NAME}-backup.timer" 2>/dev/null && { info "Stopping backup timer…";   systemctl stop    "${APP_NAME}-backup.timer"; }
+    systemctl is-enabled --quiet "${APP_NAME}-backup.timer" 2>/dev/null && { info "Disabling backup timer…";  systemctl disable "${APP_NAME}-backup.timer"; }
     systemctl is-active  --quiet "${APP_NAME}" 2>/dev/null && { info "Stopping service…";   systemctl stop    "${APP_NAME}"; }
     systemctl is-enabled --quiet "${APP_NAME}" 2>/dev/null && { info "Disabling service…";  systemctl disable "${APP_NAME}"; }
 
-    [[ -f "${SERVICE_FILE}" ]] && { info "Removing systemd unit…"; rm -f "${SERVICE_FILE}"; systemctl daemon-reload; }
+    [[ -f "${BACKUP_TIMER_FILE}"   ]] && rm -f "${BACKUP_TIMER_FILE}"
+    [[ -f "${BACKUP_SERVICE_FILE}" ]] && rm -f "${BACKUP_SERVICE_FILE}"
+    [[ -f "${SERVICE_FILE}" ]] && { info "Removing systemd units…"; rm -f "${SERVICE_FILE}"; systemctl daemon-reload; }
     [[ -d "${APP_DIR}"      ]] && { info "Removing app files…";    rm -rf "${APP_DIR}"; }
     [[ -d "${CONF_DIR}"     ]] && { info "Removing config…";       rm -rf "${CONF_DIR}"; }
     [[ -d "${LOG_DIR}"      ]] && { info "Removing logs…";         rm -rf "${LOG_DIR}"; }
@@ -112,10 +118,25 @@ do_uninstall() {
 
 do_upgrade() {
     [[ -d "${APP_DIR}" ]] || error "No existing installation at ${APP_DIR}. Run without --upgrade to install first."
+
+    # Back up the database before touching anything
+    if [[ -f "${DATA_DIR}/ssl_manager.db" ]]; then
+        info "Backing up database before upgrade…"
+        if bash "${SCRIPT_DIR}/backup.sh" --quiet; then
+            info "Database backup complete."
+        else
+            warn "Database backup failed. Proceeding anyway — check /var/backups/ssl-manager manually."
+        fi
+    fi
+
     info "Upgrading app files…"
     copy_app_files
     info "Updating Python dependencies…"
     "${APP_DIR}/venv/bin/pip" install --quiet -r "${APP_DIR}/requirements.txt"
+    info "Reloading systemd units…"
+    systemctl daemon-reload
+    systemctl enable --quiet "${APP_NAME}-backup.timer"
+    systemctl restart "${APP_NAME}-backup.timer"
     info "Restarting service…"
     systemctl restart "${APP_NAME}"
     info "Upgrade complete."
@@ -182,8 +203,14 @@ copy_app_files() {
     info "Copying application files to ${APP_DIR}…"
     cp "${SCRIPT_DIR}/app.py"           "${APP_DIR}/"
     cp "${SCRIPT_DIR}/requirements.txt" "${APP_DIR}/"
+    cp "${SCRIPT_DIR}/backup.sh"        "${APP_DIR}/"
     cp -r "${SCRIPT_DIR}/templates"     "${APP_DIR}/"
     cp -r "${SCRIPT_DIR}/static"        "${APP_DIR}/"
+
+    # Install systemd backup units (owned by root, not inside APP_DIR)
+    cp "${SCRIPT_DIR}/ssl-manager-backup.service" "${BACKUP_SERVICE_FILE}"
+    cp "${SCRIPT_DIR}/ssl-manager-backup.timer"   "${BACKUP_TIMER_FILE}"
+    chmod 644 "${BACKUP_SERVICE_FILE}" "${BACKUP_TIMER_FILE}"
     # root owns files; ssl-manager group can read/execute — not world-readable
     chown -R root:"${SERVICE_USER}" "${APP_DIR}"
     chmod -R 750 "${APP_DIR}"
@@ -441,6 +468,10 @@ info "Enabling and starting ${APP_NAME} service…"
 systemctl daemon-reload
 systemctl enable --quiet "${APP_NAME}"
 systemctl restart "${APP_NAME}"
+
+info "Enabling daily backup timer…"
+systemctl enable --quiet "${APP_NAME}-backup.timer"
+systemctl start  "${APP_NAME}-backup.timer"
 
 # Brief pause so gunicorn can create the socket before nginx tries to connect
 sleep 2

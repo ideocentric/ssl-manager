@@ -114,6 +114,7 @@ nginx listens **only on the loopback interface** (`127.0.0.1`). No port is reach
 - Creates a Python venv and installs all dependencies (including `gunicorn`)
 - Generates a cryptographically random `SECRET_KEY` and writes it to `/etc/ssl-manager/env` (readable only by root and the service user)
 - Installs a hardened `systemd` service unit (auto-restarts on failure; see [Systemd hardening](#systemd-hardening))
+- Installs and enables a `systemd` timer (`ssl-manager-backup.timer`) that runs `backup.sh` daily at 02:00, retaining 7 days of compressed, integrity-checked backups in `/var/backups/ssl-manager/`
 - Configures nginx as a reverse proxy with rate limiting and direct static file serving
 
 ### Install
@@ -177,6 +178,14 @@ sudo tail -f /var/log/ssl-manager/access.log
 # nginx logs
 sudo tail -f /var/log/nginx/ssl-manager-access.log
 sudo tail -f /var/log/nginx/ssl-manager-error.log
+
+# Backup timer
+sudo systemctl status ssl-manager-backup.timer   # next scheduled run
+sudo systemctl list-timers ssl-manager-backup.timer
+sudo systemctl start ssl-manager-backup.service  # run a backup immediately
+
+# Manual backup with custom retention
+sudo bash /opt/ssl-manager/backup.sh --days 30 --dest /mnt/nas/ssl-backups
 ```
 
 ### File layout
@@ -188,7 +197,10 @@ sudo tail -f /var/log/nginx/ssl-manager-error.log
 | `/var/log/ssl-manager/` | `ssl-manager:ssl-manager` | `750` | gunicorn access and error logs |
 | `/etc/ssl-manager/env` | `root:ssl-manager` | `640` | Environment config (SECRET_KEY, DATABASE_URL) |
 | `/run/ssl-manager/ssl-manager.sock` | `ssl-manager:ssl-manager` | `660` | Unix socket between nginx and gunicorn |
-| `/etc/systemd/system/ssl-manager.service` | `root` | `644` | systemd unit |
+| `/etc/systemd/system/ssl-manager.service` | `root` | `644` | systemd service unit |
+| `/etc/systemd/system/ssl-manager-backup.service` | `root` | `644` | backup job unit (oneshot) |
+| `/etc/systemd/system/ssl-manager-backup.timer` | `root` | `644` | backup timer (daily at 02:00) |
+| `/var/backups/ssl-manager/` | `root` | `700` | compressed database backups (7-day retention) |
 | `/etc/nginx/sites-available/ssl-manager` | `root` | `644` | nginx reverse proxy config |
 
 ### Systemd hardening

@@ -1,0 +1,20 @@
+[Unit]
+Description=SSL Manager — database backup
+Documentation=file:///opt/ssl-manager/backup.sh
+After=ssl-manager.service
+Requires=ssl-manager.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/ssl-manager/backup.sh --quiet --days 7
+
+# Security hardening for the backup job
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true

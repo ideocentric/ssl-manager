@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-database-check me-2"></i>Database Integrity Check</h4>
+  <a href="{{ url_for('db_integrity_check') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-clockwise me-1"></i>Re-run
+  </a>
+</div>
+
+{% if results.error is defined %}
+<div class="alert alert-danger">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  <strong>Check failed:</strong> {{ results.error }}
+</div>
+{% else %}
+
+{# ---- Overall status banner ---- #}
+{% if overall_ok %}
+<div class="alert alert-success d-flex align-items-center">
+  <i class="bi bi-check-circle-fill fs-4 me-3"></i>
+  <div>
+    <strong>All checks passed.</strong> The database is structurally sound, all indexes are consistent, and there are no foreign key violations.
+  </div>
+</div>
+{% else %}
+<div class="alert alert-danger d-flex align-items-center">
+  <i class="bi bi-x-circle-fill fs-4 me-3"></i>
+  <div>
+    <strong>One or more checks failed.</strong> Review the details below. Take a backup immediately if you have not done so and contact your system administrator.
+  </div>
+</div>
+{% endif %}
+
+{# ---- Summary cards ---- #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center shadow-sm h-100">
+      <div class="card-body">
+        <div class="mb-1 text-muted small text-uppercase" style="letter-spacing:1px;">Integrity Check</div>
+        {% if results.integrity_check == ['ok'] %}
+          <span class="badge bg-success fs-6"><i class="bi bi-check-lg me-1"></i>OK</span>
+        {% else %}
+          <span class="badge bg-danger fs-6"><i class="bi bi-x-lg me-1"></i>FAIL</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center shadow-sm h-100">
+      <div class="card-body">
+        <div class="mb-1 text-muted small text-uppercase" style="letter-spacing:1px;">Quick Check</div>
+        {% if results.quick_check == ['ok'] %}
+          <span class="badge bg-success fs-6"><i class="bi bi-check-lg me-1"></i>OK</span>
+        {% else %}
+          <span class="badge bg-danger fs-6"><i class="bi bi-x-lg me-1"></i>FAIL</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center shadow-sm h-100">
+      <div class="card-body">
+        <div class="mb-1 text-muted small text-uppercase" style="letter-spacing:1px;">FK Violations</div>
+        {% if results.foreign_key_violations == 0 %}
+          <span class="badge bg-success fs-6"><i class="bi bi-check-lg me-1"></i>None</span>
+        {% else %}
+          <span class="badge bg-danger fs-6"><i class="bi bi-x-lg me-1"></i>{{ results.foreign_key_violations }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center shadow-sm h-100">
+      <div class="card-body">
+        <div class="mb-1 text-muted small text-uppercase" style="letter-spacing:1px;">Journal Mode</div>
+        {% if results.journal_mode == 'wal' %}
+          <span class="badge bg-success fs-6"><i class="bi bi-journal-check me-1"></i>WAL</span>
+        {% else %}
+          <span class="badge bg-warning text-dark fs-6"><i class="bi bi-journal me-1"></i>{{ results.journal_mode }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---- Database stats ---- #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-dark text-white">
+    <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Database Statistics</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-sm-4">
+        <div class="text-muted small">Total Pages</div>
+        <div class="fw-semibold">{{ results.page_count | default(0) }}</div>
+      </div>
+      <div class="col-sm-4">
+        <div class="text-muted small">Page Size</div>
+        <div class="fw-semibold">{{ results.page_size | default(0) }} bytes</div>
+      </div>
+      <div class="col-sm-4">
+        <div class="text-muted small">Database Size (approx.)</div>
+        <div class="fw-semibold">
+          {% set size_kb = ((results.page_count | default(0)) * (results.page_size | default(0))) // 1024 %}
+          {% if size_kb >= 1024 %}
+            {{ "%.1f" | format(size_kb / 1024) }} MB
+          {% else %}
+            {{ size_kb }} KB
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-sm-4">
+        <div class="text-muted small">Free Pages</div>
+        <div class="fw-semibold {% if results.freelist_count > 100 %}text-warning{% endif %}">
+          {{ results.freelist_count | default(0) }}
+          {% if results.freelist_count > 100 %}
+            <span class="text-muted small">(consider VACUUM)</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---- Integrity check detail (only shown if not 'ok') ---- #}
+{% if results.integrity_check != ['ok'] %}
+<div class="card shadow-sm mb-4 border-danger">
+  <div class="card-header bg-danger text-white">
+    <h6 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Integrity Check Detail</h6>
+  </div>
+  <div class="card-body">
+    <ul class="mb-0">
+      {% for line in results.integrity_check %}
+      <li class="font-monospace small">{{ line }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ---- Quick check detail (only shown if not 'ok') ---- #}
+{% if results.quick_check != ['ok'] %}
+<div class="card shadow-sm mb-4 border-danger">
+  <div class="card-header bg-danger text-white">
+    <h6 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Quick Check Detail</h6>
+  </div>
+  <div class="card-body">
+    <ul class="mb-0">
+      {% for line in results.quick_check %}
+      <li class="font-monospace small">{{ line }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ---- Foreign key violations (only shown if any) ---- #}
+{% if results.foreign_key_violations > 0 %}
+<div class="card shadow-sm mb-4 border-danger">
+  <div class="card-header bg-danger text-white">
+    <h6 class="mb-0"><i class="bi bi-link-45deg me-2"></i>Foreign Key Violations ({{ results.foreign_key_violations }})</h6>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Table</th>
+          <th>Row ID</th>
+          <th>Parent Table</th>
+          <th>FK Index</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in results.foreign_key_details %}
+        <tr>
+          <td class="font-monospace">{{ v.table }}</td>
+          <td>{{ v.rowid }}</td>
+          <td class="font-monospace">{{ v.parent }}</td>
+          <td>{{ v.fkid }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endif %}{# end results.error check #}
+
+<div class="text-muted small mt-2">
+  <i class="bi bi-info-circle me-1"></i>
+  For automated backups and a manual backup procedure see <code>backup.sh</code> and the README.
+</div>
+{% endblock %}

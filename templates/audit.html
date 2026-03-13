@@ -23,11 +23,16 @@
         </thead>
         <tbody>
           {% for entry in entries %}
-          <tr class="{{ 'table-danger' if entry.result == 'failure' else '' }}">
+          <tr class="{{ 'table-danger' if entry.result == 'failure' else ('table-info' if entry.username == 'system' else '') }}">
             <td class="text-nowrap small font-monospace">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if entry.timestamp else '—' }}</td>
             <td class="small">{{ entry.username or '<em class="text-muted">anon</em>' | safe }}</td>
             <td class="small font-monospace">{{ entry.ip_address or '—' }}</td>
-            <td class="small font-monospace">{{ entry.action }}</td>
+            <td class="small font-monospace">
+              {% if entry.action == 'backup' %}
+                <i class="bi bi-archive me-1 text-info"></i>
+              {% endif %}
+              {{ entry.action }}
+            </td>
             <td class="small">
               {% if entry.resource_type %}
                 {{ entry.resource_type }}{% if entry.resource_id %}:{{ entry.resource_id }}{% endif %}

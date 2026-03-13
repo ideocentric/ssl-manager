@@ -95,6 +95,44 @@ app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB upload limit
 
 db = SQLAlchemy(app)
 
+# ---------------------------------------------------------------------------
+# SQLite connection hardening
+# ---------------------------------------------------------------------------
+# Listen on the SQLAlchemy Engine *class* (not an instance) so the handler
+# fires for every SQLite connection regardless of when the engine is created.
+# The isinstance guard ensures this is a no-op for any non-SQLite backend.
+
+from sqlalchemy import event as _sa_event
+from sqlalchemy.engine import Engine as _Engine
+import sqlite3 as _sqlite3
+
+
+@_sa_event.listens_for(_Engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    """Apply safety and performance PRAGMAs on every new SQLite connection.
+
+    * ``journal_mode=WAL`` — Write-Ahead Log eliminates the brief window
+      where a power-loss can corrupt the database under the default DELETE
+      journal.  WAL also allows readers and writers to proceed concurrently,
+      which is important when multiple gunicorn workers are active.
+
+    * ``synchronous=NORMAL`` — Flushes to disk at the most critical moments
+      (WAL checkpoints) without a full ``fsync`` on every commit.  Safe with
+      WAL mode; provides a good balance between durability and performance.
+
+    * ``foreign_keys=ON`` — Enforces referential integrity at the SQLite
+      layer so that cascades and SET NULL actions always fire, even if a
+      query bypasses the ORM.
+    """
+    if not isinstance(dbapi_connection, _sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to access this page."
@@ -1854,6 +1892,61 @@ def chain_import(chain_id):
         flash("No certificates were imported.", "warning")
 
     return redirect(url_for("chain_detail", chain_id=chain_id))
+
+
+# ---- Database integrity check ----
+
+@app.route("/admin/db-check")
+@superadmin_required
+def db_integrity_check():
+    """GET /admin/db-check — Run SQLite integrity checks and report results (superadmin only)."""
+    from sqlalchemy import text
+    results = {}
+    try:
+        with db.engine.connect() as conn:
+            # Full structural integrity check
+            rows = conn.execute(text("PRAGMA integrity_check")).fetchall()
+            results["integrity_check"] = [r[0] for r in rows]
+
+            # Quick check (index/page consistency, faster than full)
+            rows = conn.execute(text("PRAGMA quick_check")).fetchall()
+            results["quick_check"] = [r[0] for r in rows]
+
+            # WAL journal mode confirmation
+            row = conn.execute(text("PRAGMA journal_mode")).fetchone()
+            results["journal_mode"] = row[0] if row else "unknown"
+
+            # Foreign key violations
+            rows = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+            results["foreign_key_violations"] = len(rows)
+            results["foreign_key_details"] = [
+                {"table": r[0], "rowid": r[1], "parent": r[2], "fkid": r[3]}
+                for r in rows
+            ]
+
+            # Database page stats
+            row = conn.execute(text("PRAGMA page_count")).fetchone()
+            results["page_count"] = row[0] if row else 0
+            row = conn.execute(text("PRAGMA page_size")).fetchone()
+            results["page_size"] = row[0] if row else 0
+            row = conn.execute(text("PRAGMA freelist_count")).fetchone()
+            results["freelist_count"] = row[0] if row else 0
+
+        integrity_ok = results["integrity_check"] == ["ok"]
+        quick_ok     = results["quick_check"]     == ["ok"]
+        fk_ok        = results["foreign_key_violations"] == 0
+        overall_ok   = integrity_ok and quick_ok and fk_ok
+
+        _audit("db_integrity_check", result="success" if overall_ok else "failure",
+               detail=f"integrity={'ok' if integrity_ok else 'FAIL'} "
+                      f"quick={'ok' if quick_ok else 'FAIL'} "
+                      f"fk_violations={results['foreign_key_violations']}")
+    except Exception as e:
+        results = {"error": str(e)}
+        overall_ok = False
+        _audit("db_integrity_check", result="failure", detail=f"exception={e!r}")
+
+    return render_template("db_check.html", results=results, overall_ok=overall_ok)
 
 
 # ---- Audit log viewer ----

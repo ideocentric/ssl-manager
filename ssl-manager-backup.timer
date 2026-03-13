@@ -1,0 +1,16 @@
+[Unit]
+Description=SSL Manager — daily database backup timer
+Documentation=file:///opt/ssl-manager/backup.sh
+
+[Timer]
+# Run daily at 02:00 local time
+OnCalendar=*-*-* 02:00:00
+
+# Spread the start time by up to 5 minutes to avoid thundering-herd on multi-server setups
+RandomizedDelaySec=300
+
+# If the system was off at the scheduled time, run the backup at next boot
+Persistent=true
+
+[Install]
+WantedBy=timers.target
