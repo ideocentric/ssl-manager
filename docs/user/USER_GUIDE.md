@@ -445,4 +445,4 @@ To transfer superadmin responsibilities, promote a second user to `superadmin` f
 
 ---
 
-*For installation, deployment, and system administration see [README.md](README.md). For detailed CLI verification commands and CA-specific notes see [WORKFLOW.md](WORKFLOW.md).*
+*For installation, deployment, and system administration see [README.md](../../README.md). For detailed CLI verification commands and CA-specific notes see [WORKFLOW.md](../developer/WORKFLOW.md).*

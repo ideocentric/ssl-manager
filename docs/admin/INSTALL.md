@@ -11,7 +11,7 @@
 
 Cloud deployments (AWS and Azure) require Terraform and the relevant cloud CLI. See [Cloud Deployment Prerequisites](#cloud-deployment-prerequisites) for installation instructions covering macOS, Linux, and Windows — including [SSH key generation](#ssh-key-pair) for all platforms and [server-side user management](#managing-ssh-users-on-the-server).
 
-All production methods (bare metal, AWS, Azure) share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [SYSTEM_REQUIREMENTS.md](REQUIREMENTS.md) for hardware sizing guidance.
+All production methods (bare metal, AWS, Azure) share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [REQUIREMENTS.md](REQUIREMENTS.md) for hardware sizing guidance.
 
 ---
 
@@ -144,7 +144,7 @@ sudo systemctl restart fail2ban
 sudo dpkg-reconfigure --priority=low unattended-upgrades
 ```
 
-See [README.md — Host hardening](README.md#host-hardening) for the complete hardening checklist including SSH configuration and sysctl settings.
+See [README.md — Host hardening](../../README.md#host-hardening) for the complete hardening checklist including SSH configuration and sysctl settings.
 
 ### Service management
 
@@ -514,7 +514,7 @@ curl -s https://checkip.amazonaws.com
 
 SSL Manager can be deployed to AWS using the Terraform configuration in `deploy/aws/`. It provisions a hardened EC2 instance (Ubuntu 24.04 LTS) with an encrypted EBS root volume and a security group that restricts SSH access to specified IP addresses only.
 
-**Full instructions:** [`deploy/aws/README.md`](deploy/aws/README.md)
+**Full instructions:** [DEPLOY-AWS.md](DEPLOY-AWS.md)
 
 ### Summary of steps
 
@@ -570,7 +570,7 @@ terraform apply   # updates the security group in seconds, no restart needed
 
 SSL Manager can be deployed to Azure using the Terraform configuration in `deploy/azure/`. It provisions a hardened Linux VM (Ubuntu 24.04 LTS) with hypervisor-level disk encryption and a Network Security Group that restricts SSH access to specified IP addresses only.
 
-**Full instructions:** [`deploy/azure/README.md`](deploy/azure/README.md)
+**Full instructions:** [DEPLOY-AZURE.md](DEPLOY-AZURE.md)
 
 ### Summary of steps
 
@@ -814,4 +814,4 @@ This deletes the home directory and `authorized_keys` file, immediately terminat
 | **Existing account** | Prefer if you have AWS credits or consolidated billing | Prefer if you have Azure credits or EA |
 | **Admin username** | `ubuntu` (fixed by AMI) | Configurable (default: `sslmgr`) |
 
-See [SYSTEM_REQUIREMENTS.md](REQUIREMENTS.md) for full hardware sizing rationale and a complete provider comparison table.
+See [REQUIREMENTS.md](REQUIREMENTS.md) for full hardware sizing rationale and a complete provider comparison table.

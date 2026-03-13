@@ -80,7 +80,7 @@ Superadmins access the **Users** page from the navbar. From there you can:
 3. Submit the new CSR to your CA, upload the returned cert to the new certificate record
 4. Once verified, delete the old certificate
 
-For a full step-by-step walkthrough — including CA setup, CSR signing, importing intermediates, all export formats, and verification commands — see **[WORKFLOW.md](WORKFLOW.md)**.
+For a full step-by-step walkthrough — including CA setup, CSR signing, importing intermediates, all export formats, and verification commands — see **[WORKFLOW.md](docs/developer/WORKFLOW.md)**.
 
 ---
 
@@ -420,7 +420,7 @@ All queries use the SQLAlchemy ORM with parameterised bindings. The one raw SQL 
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py
+python wsgi.py
 ```
 
 The app starts at **http://localhost:5001**
@@ -551,32 +551,72 @@ python dev_ca.py init --force
 
 ```
 ssl-manager/
-├── app.py                  # Flask app — routes, models, crypto helpers
+├── wsgi.py                 # WSGI entry point (gunicorn / production)
 ├── dev_ca.py               # Local dev CA for signing test CSRs
 ├── install.sh              # Ubuntu production installer
+├── conftest.py             # pytest fixtures (factory pattern, in-memory DB)
 ├── test_app.py             # pytest test suite
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
-└── templates/
-    ├── base.html               # Bootstrap 5 layout, navbar, flash messages
-    ├── login.html
-    ├── setup.html              # First-run admin account setup
-    ├── users.html              # User list (superadmin only)
-    ├── user_form.html          # Add / edit user
-    ├── certificates.html       # Certificate list with sort, search, and expiry badges
-    ├── cert_new.html           # New certificate / renew form
-    ├── cert_detail.html        # Detail, signed cert upload, and downloads
-    ├── profiles.html           # Profile list
-    ├── profile_form.html       # Create / edit profile
-    ├── chains.html             # Named chain list
-    ├── chain_form.html         # Create / edit chain
-    ├── chain_detail.html       # Chain intermediates with drag-to-reorder
-    ├── chain_import.html       # Bulk PEM bundle import
-    └── intermediate_form.html  # Add / edit individual chain certificate
+├── app/
+│   ├── __init__.py         # Application factory (create_app)
+│   ├── models.py           # SQLAlchemy models (User, Certificate, CertChain, …)
+│   ├── crypto.py           # RSA key gen, CSR, PKCS#12, JKS, P7B, ZIP helpers
+│   ├── security.py         # Auth decorators, CSRF, audit logging, security headers
+│   ├── validators.py       # Domain, email, country, SAN validation
+│   ├── extensions.py       # Flask extension instances (db, login_manager)
+│   ├── routes/
+│   │   ├── auth.py         # Login, logout, setup, account
+│   │   ├── certificates.py # Certificate CRUD and all download formats
+│   │   ├── chains.py       # Chain and intermediate certificate management
+│   │   ├── profiles.py     # Certificate subject profile management
+│   │   ├── users.py        # User management (superadmin only)
+│   │   └── audit.py        # Audit log (superadmin only)
+│   ├── templates/
+│   │   ├── base.html               # Bootstrap 5 layout, navbar, flash messages
+│   │   ├── login.html
+│   │   ├── setup.html              # First-run admin account setup
+│   │   ├── users.html              # User list (superadmin only)
+│   │   ├── user_form.html          # Add / edit user
+│   │   ├── certificates.html       # Certificate list with sort, search, and expiry badges
+│   │   ├── cert_new.html           # New certificate / renew form
+│   │   ├── cert_detail.html        # Detail, signed cert upload, and downloads
+│   │   ├── profiles.html           # Profile list
+│   │   ├── profile_form.html       # Create / edit profile
+│   │   ├── chains.html             # Named chain list
+│   │   ├── chain_form.html         # Create / edit chain
+│   │   ├── chain_detail.html       # Chain intermediates with drag-to-reorder
+│   │   ├── chain_import.html       # Bulk PEM bundle import
+│   │   └── intermediate_form.html  # Add / edit individual chain certificate
+│   └── static/
+│       └── …                       # CSS, JS, icons
+└── docs/
+    ├── user/USER_GUIDE.md          # End-user guide (SSH tunnel, certificate workflow)
+    ├── admin/
+    │   ├── INSTALL.md              # Installation and deployment guide
+    │   ├── REQUIREMENTS.md         # Hardware sizing and system requirements
+    │   ├── deploy-aws.md           # AWS EC2 Terraform deployment
+    │   └── deploy-azure.md         # Azure VM Terraform deployment
+    ├── developer/WORKFLOW.md       # Developer workflow (Docker, tests, CA, exports)
+    └── security/ADVISORY.md        # CVE and dependency security review
 ```
 
 > `/settings` redirects to `/profiles` for backwards-compatible bookmarks.
+
+---
+
+## Documentation
+
+| Audience | Document |
+|---|---|
+| **End users** | [docs/user/USER_GUIDE.md](docs/user/USER_GUIDE.md) — SSH tunnel setup, certificate lifecycle, download formats |
+| **Administrators** | [docs/admin/INSTALL.md](docs/admin/INSTALL.md) — installation, deployment (bare metal, AWS, Azure), SSH user management |
+| **Administrators** | [docs/admin/REQUIREMENTS.md](docs/admin/REQUIREMENTS.md) — hardware sizing, system packages, file system layout |
+| **Administrators** | [docs/admin/DEPLOY-AWS.md](docs/admin/DEPLOY-AWS.md) — AWS EC2 Terraform deployment |
+| **Administrators** | [docs/admin/DEPLOY-AZURE.md](docs/admin/DEPLOY-AZURE.md) — Azure VM Terraform deployment |
+| **Developers** | [docs/developer/WORKFLOW.md](docs/developer/WORKFLOW.md) — Docker dev environment, unit tests, local CA, export verification |
+| **Security** | [docs/security/ADVISORY.md](docs/security/ADVISORY.md) — CVE review of all dependencies |
 
 ## Dependencies
 
