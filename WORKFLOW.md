@@ -7,23 +7,24 @@ This document walks through the complete certificate lifecycle from first login 
 ## Table of Contents
 
 1. [First-Run Setup](#1-first-run-setup)
-2. [Configure Organization Defaults](#2-configure-organization-defaults)
-3. [Set Up the Certificate Chain](#3-set-up-the-certificate-chain)
+2. [Configure Certificate Profiles](#2-configure-certificate-profiles)
+3. [Set Up Certificate Chains](#3-set-up-certificate-chains)
    - [Testing: Local Dev CA](#31-testing-with-the-local-dev-ca)
    - [Production: Real CA Intermediates](#32-production-real-ca-intermediates)
-4. [Create a New Certificate](#4-create-a-new-certificate)
-5. [Sign the CSR](#5-sign-the-csr)
-   - [Testing: Sign with dev_ca.py](#51-testing-sign-with-dev_capy)
-   - [Production: Submit to a Real CA](#52-production-submit-to-a-real-ca)
-6. [Upload the Signed Certificate](#6-upload-the-signed-certificate)
-7. [Export Formats](#7-export-formats)
-8. [Verification](#8-verification)
-   - [Component ZIP / PEM files](#81-component-zip--pem-files)
-   - [Full Chain PEM](#82-full-chain-pem)
-   - [PKCS#12 / PFX](#83-pkcs12--pfx)
-   - [JKS](#84-jks)
-   - [P7B](#85-p7b)
-9. [User Management](#9-user-management)
+4. [Browse and Search Certificates](#4-browse-and-search-certificates)
+5. [Create a New Certificate](#5-create-a-new-certificate)
+6. [Sign the CSR](#6-sign-the-csr)
+   - [Testing: Sign with dev_ca.py](#61-testing-sign-with-dev_capy)
+   - [Production: Submit to a Real CA](#62-production-submit-to-a-real-ca)
+7. [Upload the Signed Certificate](#7-upload-the-signed-certificate)
+8. [Export Formats](#8-export-formats)
+9. [Verification](#9-verification)
+   - [Component ZIP / PEM files](#91-component-zip--pem-files)
+   - [Full Chain PEM](#92-full-chain-pem)
+   - [PKCS#12 / PFX](#93-pkcs12--pfx)
+   - [JKS](#94-jks)
+   - [P7B](#95-p7b)
+10. [User Management](#10-user-management)
 
 ---
 
@@ -46,31 +47,84 @@ You are logged in automatically and land on the **Certificates** page. This acco
 
 ---
 
-## 2. Configure Organization Defaults
+## 2. Configure Certificate Profiles
 
-Settings are applied as defaults whenever a new certificate is created. Configure these once before creating any certificates.
+**Navigate:** Navbar → **Profiles**
 
-**Navigate:** Navbar → **Settings**
+A profile is a named template of Distinguished Name (DN) fields. Rather than configuring a single global default, you can maintain as many profiles as your organisation needs — for example one per legal entity, region, or certificate type.
 
-| Field | Description | Example |
-|---|---|---|
-| Key Size | RSA key length in bits | `2048` or `4096` |
-| Country | Two-letter ISO country code | `US` |
-| State | State or province | `California` |
-| City | Locality | `San Francisco` |
-| Organization | Legal org name | `Acme Corp` |
-| Org Unit | Department | `IT` |
-| Email | Contact email embedded in the CSR | `ssl@acme.com` |
+### Creating a profile
 
-Click **Save Settings**. These values pre-fill the new certificate form; you can override them per certificate.
+Click **New Profile**. Fill in:
+
+| Field | Notes |
+|---|---|
+| **Name** | Required. A human-readable label, e.g. "Acme Corp — US" or "EU Subsidiary" |
+| Key Size | RSA key size in bits (`2048` or `4096`) |
+| Country | Two-letter ISO country code |
+| State | State or province |
+| City | Locality |
+| Org Name | Organisation name (O=) |
+| Org Unit | Organisational unit (OU=) |
+| Email | Contact email embedded in the CSR subject |
+
+Click **Save**. The profile now appears in the Profiles table.
+
+### Default profile
+
+Exactly one profile carries the **default** badge (displayed in green). When only one profile exists it is automatically the default. To promote a different profile, click **Set Default** next to it.
+
+The default profile is pre-selected in the certificate creation form when multiple profiles exist.
+
+### Applying a profile when creating a certificate
+
+- **One profile exists** — its values are applied to the subject fields automatically; no selection UI is shown.
+- **Multiple profiles exist** — a profile dropdown appears at the top of the New Certificate form. Choose a profile and click **Apply** to populate the subject fields. This does not submit the form; you can adjust any field before saving.
+
+Profiles are templates only. No persistent link is stored between a profile and the certificates created from it. Each certificate stores a snapshot of the subject fields at creation time.
+
+### Deleting a profile
+
+The last remaining profile cannot be deleted. All others can be removed at any time without affecting existing certificates.
+
+> **Legacy note:** The old `/settings` URL redirects to `/profiles` so that any saved bookmarks continue to work.
 
 ---
 
-## 3. Set Up the Certificate Chain
+## 3. Set Up Certificate Chains
 
-Chain certificates (intermediates and root) must be loaded before you export any bundled format. They are stored organisation-wide and automatically included in every certificate export.
+**Navigate:** Navbar → **Chains**
 
-**Navigate:** Navbar → **Chain Certificates** → **Add Chain Certificate**
+A chain is a named, ordered collection of intermediate and root CA certificates that get bundled with your domain certificates. You can maintain multiple independent chains — useful when rotating CA providers or managing certificates from several issuers.
+
+### Creating a chain
+
+Click **New Chain**. Provide:
+
+- **Name** — required, e.g. "Let's Encrypt R11" or "DigiCert Intermediate 2025"
+- **Description** — optional free-text note
+
+Click **Save**. The chain now appears in the Chains table and can be assigned to certificates.
+
+### Adding intermediate certificates
+
+Open a chain by clicking its name. On the Chain Detail page, click **Add Certificate** and provide:
+
+- **Display Name** — a human-readable label for this entry
+- **PEM Data** — paste the PEM-encoded certificate
+- **Order** — integer; order `1` is closest to the domain certificate, higher numbers ascend toward the root
+
+### Drag-to-reorder
+
+On the Chain Detail page, drag entries up or down to change their order. The order numbers update automatically on save.
+
+### Import Bundle
+
+If your CA provides a bundle file containing multiple certificates in a single PEM, use the **Import Bundle** button on the Chain Detail page. Paste or upload the multi-cert PEM; the app splits it into individual entries, assigns sequential order numbers, and adds them all at once.
+
+### Assigning chains to certificates
+
+When creating a certificate you select which chain to assign. The assignment can also be changed later from the Certificate Detail page. One chain can be shared by many certificates. When you rotate to a new CA, create a new chain, point new certificates at it, and leave existing certificates on the old chain.
 
 ### 3.1 Testing with the Local Dev CA
 
@@ -88,63 +142,85 @@ root.key / root.crt          ← 10-year self-signed root
 intermediate.key / intermediate.crt  ← 5-year intermediate, signed by root
 ```
 
-**Add the Intermediate CA (order 1):**
+**Print chain PEMs for import:**
 
 ```bash
-python dev_ca.py chain --intermediate
+python dev_ca.py chain
 ```
 
-Copy the printed PEM. In the app:
+In the app, create a chain under **Chains → New Chain**, then on the Chain Detail page either:
 
-- **Name:** `Local Dev Intermediate CA`
-- **Order:** `1`
-- **PEM Data:** paste the intermediate PEM
-- Click **Save**
+- Click **Import Bundle**, paste or upload the combined output (both PEMs), and let the app split them; or
+- Add each certificate individually:
+  - **Add Certificate** with Name `Local Dev Intermediate CA`, Order `1`, paste the intermediate PEM
+  - **Add Certificate** with Name `Local Dev Root CA`, Order `2`, paste the root PEM
 
-**Add the Root CA (order 2):**
-
-```bash
-python dev_ca.py chain --root
-```
-
-Copy the printed PEM. In the app:
-
-- **Name:** `Local Dev Root CA`
-- **Order:** `2`
-- **PEM Data:** paste the root PEM
-- Click **Save**
-
-The **Chain Certificates** list now shows both entries with their subject, expiry, and whether each is a root or intermediate.
+The **Chain Detail** page now shows both entries with their subject, expiry, and CA type.
 
 ### 3.2 Production: Real CA Intermediates
 
 When using a CA such as GoDaddy, DigiCert, or Sectigo:
 
 1. Download the intermediate bundle from your CA's support page (usually a `.crt` or `.pem` file containing one or more certificates).
-2. If the bundle contains multiple certificates concatenated together, split them into individual PEM blocks (each starts with `-----BEGIN CERTIFICATE-----`).
-3. Add each certificate separately under **Chain Certificates**, assigning order values that reflect the chain from leaf to root:
+2. In the app, create a new chain under **Chains → New Chain** with a descriptive name.
+3. On the Chain Detail page, use **Import Bundle** to paste or upload the full bundle — the app splits it into individual entries automatically. Review the order numbers and adjust if needed.
+4. Alternatively, add each certificate separately, assigning order values that reflect the chain from leaf to root:
    - Order `1` — the issuing intermediate (the one that directly signed your domain cert)
    - Order `2` — the next intermediate (if present)
    - Order `3` — the root CA (optional; browsers typically have this built-in)
 
-> **Tip:** GoDaddy typically provides two files — `gd_bundle-g2-g1.crt` (intermediates) and `gd_g2_iis.p7b` (for IIS). Use the `.crt` bundle, split it if needed, and add each cert in chain order.
+> **Tip:** GoDaddy typically provides two files — `gd_bundle-g2-g1.crt` (intermediates) and `gd_g2_iis.p7b` (for IIS). Use the `.crt` bundle with **Import Bundle** to add all intermediates in one step.
 
-**Verify chain order** on the Chain Certificates page — entries are listed in ascending order. The intermediate that directly signed your domain certificate must be order `1`.
+**Verify chain order** on the Chain Detail page — entries are listed in ascending order. The intermediate that directly signed your domain certificate must be order `1`.
 
 ---
 
-## 4. Create a New Certificate
+## 4. Browse and Search Certificates
+
+**Navigate:** Navbar → **Certificates**
+
+### Sorting
+
+Click any column header to sort by that column. Click the same header again to reverse the sort direction. An arrow icon indicates the active sort column and direction. The default sort is **Created — descending** (newest certificates first).
+
+Sortable columns: **Domain**, **Status**, **Expiry**, **SANs**, **Created**.
+
+### Searching
+
+Type in the search bar above the table to filter rows in real time. The search matches against:
+
+- Domain name
+- Status (`active`, `expired`, `pending_signing`)
+- Organisation name
+- Country
+- Email
+- Expiry date (YYYY-MM-DD format)
+- Created date
+- All SAN domains
+
+A counter on the right side of the search bar shows **N of M certificates**, reflecting the number of rows currently visible versus the total.
+
+---
+
+## 5. Create a New Certificate
 
 **Navigate:** Navbar → **Certificates** → **New Certificate**
 
-Fill in the form:
+### Profile selection
+
+If more than one profile exists, a profile dropdown appears at the top of the form. Select the desired profile and click **Apply** to pre-fill the subject fields. Adjust any field as needed before proceeding.
+
+If only one profile exists, its values are applied automatically and no dropdown is shown.
+
+### Fill in the form
 
 | Field | Description |
 |---|---|
 | **Domain (CN)** | Primary domain, e.g. `www.example.com` |
 | **Subject Alternative Names** | One domain per line. The CN is included automatically. |
 | **Key Size** | `2048` (standard) or `4096` (higher security) |
-| Country / State / City / Org / OU / Email | Pre-filled from Settings; edit as needed |
+| Country / State / City / Org / OU / Email | Pre-filled from the selected profile; edit as needed |
+| **Chain** | Select which named chain to bundle with this certificate |
 
 Click **Create Certificate**.
 
@@ -155,11 +231,11 @@ The app:
 
 ---
 
-## 5. Sign the CSR
+## 6. Sign the CSR
 
 On the **Certificate Detail** page, the CSR is displayed in the **Certificate Signing Request** section.
 
-### 5.1 Testing: Sign with dev_ca.py
+### 6.1 Testing: Sign with dev_ca.py
 
 ```bash
 # Download the CSR from the Certificate Detail page (Download CSR button)
@@ -174,7 +250,7 @@ The signed certificate PEM is printed to the terminal and saved to `dev-ca/signe
 python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 ```
 
-### 5.2 Production: Submit to a Real CA
+### 6.2 Production: Submit to a Real CA
 
 1. On the **Certificate Detail** page click **Download CSR** to save the `.csr` file.
 2. Log in to your CA's portal (GoDaddy, DigiCert, Sectigo, etc.).
@@ -182,11 +258,11 @@ python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 4. Complete domain validation (DCV) as required by the CA.
 5. Once approved, download the signed certificate — typically delivered as a `.crt` or `.pem` file containing only the end-entity certificate (not the chain).
 
-> **Important:** Download only the **domain certificate**, not the bundle. Intermediate certificates are managed separately in Step 3.
+> **Important:** Download only the **domain certificate**, not the bundle. Intermediate certificates are managed separately in a named chain (Step 3).
 
 ---
 
-## 6. Upload the Signed Certificate
+## 7. Upload the Signed Certificate
 
 **Navigate:** Certificate Detail page → **Upload Signed Certificate** section
 
@@ -196,7 +272,7 @@ python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
    MIIDazCCAlOgAwIBAgI...
    -----END CERTIFICATE-----
    ```
-2. Paste it into the **Signed Certificate PEM** text area.
+2. Paste it into the **Signed Certificate PEM** text area, or use the file upload option.
 3. Click **Upload Certificate**.
 
 The app validates the PEM, extracts the expiry date, and updates the status to **Active**. The expiry date appears with a colour-coded indicator:
@@ -212,7 +288,7 @@ The **Downloads** section is now unlocked.
 
 ---
 
-## 7. Export Formats
+## 8. Export Formats
 
 All download options appear in the **Downloads** section of the Certificate Detail page. The chain certificates loaded in Step 3 are automatically included in every bundled format.
 
@@ -314,11 +390,11 @@ Contains: signed certificate + all intermediates in PKCS#7 DER format. **Does no
 
 ---
 
-## 8. Verification
+## 9. Verification
 
 Use these commands to inspect and verify each format after downloading. Replace filenames with your actual domain.
 
-### 8.1 Component ZIP / PEM files
+### 9.1 Component ZIP / PEM files
 
 **Inspect the certificate:**
 ```bash
@@ -352,7 +428,7 @@ This lists every certificate in the chain with its subject and issuer.
 
 ---
 
-### 8.2 Full Chain PEM
+### 9.2 Full Chain PEM
 
 **Split and inspect each cert** (the file contains key + cert + intermediates concatenated):
 ```bash
@@ -365,7 +441,7 @@ openssl x509 -in www.example.com-fullchain.pem -text -noout
 
 ---
 
-### 8.3 PKCS#12 / PFX
+### 9.3 PKCS#12 / PFX
 
 **List contents:**
 ```bash
@@ -394,7 +470,7 @@ openssl rsa  -noout -modulus -in extracted_key.pem  | md5sum
 
 ---
 
-### 8.4 JKS
+### 9.4 JKS
 
 Requires the Java `keytool` utility (included with any JDK).
 
@@ -417,7 +493,7 @@ keytool -list -v -keystore www.example.com.jks -storepass changeit \
 
 ---
 
-### 8.5 P7B
+### 9.5 P7B
 
 **List all certificates in the bundle:**
 ```bash
@@ -436,7 +512,7 @@ openssl x509  -in bundle.pem -text -noout
 
 ---
 
-## 9. User Management
+## 10. User Management
 
 User management is available to **superadmin** accounts only.
 

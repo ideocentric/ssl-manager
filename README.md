@@ -7,11 +7,12 @@ A Flask-based web application for managing SSL certificate lifecycle — from RS
 - User authentication with first-run setup wizard
 - Two roles: **superadmin** (manage users) and **user** (manage certificates)
 - At least one superadmin is always enforced — the last superadmin cannot be removed or demoted
-- Configure organization-wide defaults (key size, country, state, org name, etc.)
+- **Named certificate profiles** — create multiple profiles (Name, key size, country, org name, etc.) and apply them as templates when generating new certificates; a default profile is pre-selected automatically
 - Generate RSA private keys (2048 or 4096-bit) and CSRs per domain
 - Support for Subject Alternative Names (SANs)
-- **Named certificate chains** — manage multiple independent intermediate/root CA sets and assign each to the certificates that use it (useful when transitioning between CA providers or intermediate generations)
+- **Named certificate chains** — manage multiple independent intermediate/root CA sets, each with drag-to-reorder support; assign each chain to the certificates that use it (useful when transitioning between CA providers or intermediate generations)
 - **Bundle import** — upload or paste a multi-cert PEM bundle (e.g. a CA-provided `.crt` file) to auto-populate a chain in one step
+- **Certificate list sort and search** — click column headers to sort by Domain, Status, Expiry, SANs, or Created; type in the search bar to filter in real time across domain, status, org name, country, email, dates, and SAN domains
 - Upload signed certificates returned by your CA — via file upload or paste
 - **Renew / Rekey** — pre-populate a new CSR from an existing certificate to streamline annual renewals
 - Color-coded expiration tracking (green → yellow → red) on both certificate and chain detail views
@@ -48,7 +49,7 @@ The first time you open the app you will be redirected to `/setup`. Fill in a us
 | Role | Capabilities |
 |---|---|
 | `superadmin` | Everything a user can do, plus: add/edit/delete users, change roles |
-| `user` | Create and manage certificates, download all formats, manage chains and settings |
+| `user` | Create and manage certificates, download all formats, manage chains and profiles |
 
 ### User management
 
@@ -65,9 +66,9 @@ Superadmins access the **Users** page from the navbar. From there you can:
 
 ## Certificate Workflow
 
-1. **Settings** → configure org defaults (key size, country, org name, etc.)
-2. **Chains** → create one or more named chains; add your intermediate and root CA certs to each, or use **Import Bundle** to import a multi-cert PEM file in one step
-3. **New Certificate** → enter a domain (and optional SANs), assign a chain; the app generates an RSA key and CSR automatically
+1. **Profiles** → create one or more named profiles with your org defaults (key size, country, org name, etc.); mark one as the default
+2. **Chains** → create one or more named chains; add your intermediate and root CA certs to each, or use **Import Bundle** to import a multi-cert PEM file in one step; drag entries to set their order
+3. **New Certificate** → enter a domain (and optional SANs); select a profile to pre-fill subject fields; assign a chain; the app generates an RSA key and CSR automatically
 4. Download the `.csr` file and submit it to your Certificate Authority
 5. Once the CA returns a signed cert, upload the file or paste the PEM into the **Signed Certificate** section on the certificate detail page
 6. All download formats become available immediately
@@ -420,16 +421,19 @@ ssl-manager/
     ├── setup.html              # First-run admin account setup
     ├── users.html              # User list (superadmin only)
     ├── user_form.html          # Add / edit user
-    ├── certificates.html       # Certificate list with expiry badges
+    ├── certificates.html       # Certificate list with sort, search, and expiry badges
     ├── cert_new.html           # New certificate / renew form
     ├── cert_detail.html        # Detail, signed cert upload, and downloads
-    ├── settings.html           # Org defaults
+    ├── profiles.html           # Profile list
+    ├── profile_form.html       # Create / edit profile
     ├── chains.html             # Named chain list
     ├── chain_form.html         # Create / edit chain
     ├── chain_detail.html       # Chain intermediates with drag-to-reorder
     ├── chain_import.html       # Bulk PEM bundle import
     └── intermediate_form.html  # Add / edit individual chain certificate
 ```
+
+> `/settings` redirects to `/profiles` for backwards-compatible bookmarks.
 
 ## Dependencies
 

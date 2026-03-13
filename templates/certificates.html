@@ -9,6 +9,15 @@
 </div>
 
 {% if certs %}
+<div class="mb-3">
+  <div class="input-group">
+    <span class="input-group-text bg-white"><i class="bi bi-search text-secondary"></i></span>
+    <input type="search" id="certSearch" class="form-control"
+           placeholder="Search by domain, status, org, expiry date…" autocomplete="off">
+    <span id="certSearchCount" class="input-group-text bg-white text-muted small"></span>
+  </div>
+</div>
+
 <div class="card shadow-sm">
   <div class="card-body p-0">
     <table class="table table-hover mb-0" id="certTable">
@@ -35,8 +44,18 @@
       <tbody>
         {% for cert in certs %}
         <tr>
-          {# col 0: domain #}
-          <td class="align-middle fw-semibold" data-sort="{{ cert.domain }}">
+          {# col 0: domain — data-search aggregates all searchable text for this row #}
+          <td class="align-middle fw-semibold" data-sort="{{ cert.domain }}"
+              data-search="{{ [
+                cert.domain,
+                cert.status_label,
+                cert.org_name or '',
+                cert.country or '',
+                cert.email or '',
+                (cert.expiry_date.strftime('%Y-%m-%d') if cert.expiry_date else ''),
+                cert.created_at.strftime('%Y-%m-%d'),
+                (cert.san_list | join(' '))
+              ] | join(' ') | lower }}">
             <i class="bi bi-globe me-1 text-secondary"></i>{{ cert.domain }}
           </td>
 
@@ -180,8 +199,35 @@
     });
   });
 
-  // Apply default sort on load
+  // Search
+  const searchInput = document.getElementById('certSearch');
+  const countBadge  = document.getElementById('certSearchCount');
+  const totalRows   = table.tBodies[0].rows.length;
+
+  function updateCount(visible) {
+    countBadge.textContent = visible < totalRows
+      ? visible + ' of ' + totalRows
+      : totalRows + ' certificate' + (totalRows === 1 ? '' : 's');
+  }
+
+  function filterTable() {
+    const q     = searchInput.value.trim().toLowerCase();
+    const tbody = table.tBodies[0];
+    let   shown = 0;
+    Array.from(tbody.rows).forEach(row => {
+      const haystack = row.cells[0].dataset.search || '';
+      const match    = !q || haystack.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    updateCount(shown);
+  }
+
+  searchInput.addEventListener('input', filterTable);
+
+  // Apply default sort then update count on load
   sortTable(sortCol, sortAsc);
+  updateCount(totalRows);
 })();
 </script>
 {% endif %}
