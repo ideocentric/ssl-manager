@@ -1955,13 +1955,70 @@ def db_integrity_check():
 @app.route("/audit")
 @superadmin_required
 def audit_log_view():
-    """GET /audit — Display paginated audit log entries (superadmin only)."""
+    """GET /audit — Display paginated, searchable, sortable audit log (superadmin only)."""
+    # --- per-page (persisted in session) ---
+    valid_per_page = {20, 50, 100}
+    if "per_page" in request.args:
+        per_page = request.args.get("per_page", type=int)
+        if per_page in valid_per_page:
+            session["audit_per_page"] = per_page
+        else:
+            per_page = session.get("audit_per_page", 50)
+    else:
+        per_page = session.get("audit_per_page", 50)
+
+    # --- sort (persisted in session) ---
+    sortable_columns = {
+        "timestamp": AuditLog.timestamp,
+        "username":  AuditLog.username,
+        "action":    AuditLog.action,
+        "resource":  AuditLog.resource_type,
+        "result":    AuditLog.result,
+    }
+    if "sort" in request.args or "dir" in request.args:
+        sort_col = request.args.get("sort", "timestamp")
+        sort_dir = request.args.get("dir",  "desc")
+        if sort_col not in sortable_columns:
+            sort_col = "timestamp"
+        if sort_dir not in ("asc", "desc"):
+            sort_dir = "desc"
+        session["audit_sort_col"] = sort_col
+        session["audit_sort_dir"] = sort_dir
+    else:
+        sort_col = session.get("audit_sort_col", "timestamp")
+        sort_dir = session.get("audit_sort_dir", "desc")
+    col_expr = sortable_columns[sort_col]
+    order_expr = col_expr.asc() if sort_dir == "asc" else col_expr.desc()
+
+    # --- search ---
+    q = request.args.get("q", "").strip()
+    query = AuditLog.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                AuditLog.username.ilike(like),
+                AuditLog.ip_address.ilike(like),
+                AuditLog.action.ilike(like),
+                AuditLog.resource_type.ilike(like),
+                AuditLog.result.ilike(like),
+                AuditLog.detail.ilike(like),
+            )
+        )
+
     page = request.args.get("page", 1, type=int)
-    per_page = 50
-    pagination = AuditLog.query.order_by(AuditLog.timestamp.desc()).paginate(
+    pagination = query.order_by(order_expr).paginate(
         page=page, per_page=per_page, error_out=False
     )
-    return render_template("audit.html", entries=pagination.items, pagination=pagination)
+    return render_template(
+        "audit.html",
+        entries=pagination.items,
+        pagination=pagination,
+        per_page=per_page,
+        sort_col=sort_col,
+        sort_dir=sort_dir,
+        q=q,
+    )
 
 
 # ---- Error handlers ----
