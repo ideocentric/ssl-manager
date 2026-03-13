@@ -5,7 +5,7 @@
   <div class="col-lg-6">
 
     <div class="d-flex align-items-center mb-3">
-      <a href="{{ url_for('chains') }}" class="btn btn-secondary btn-sm me-3">
+      <a href="{{ url_for('chains.chains') }}" class="btn btn-secondary btn-sm me-3">
         <i class="bi bi-arrow-left"></i>
       </a>
       <h4 class="mb-0">
@@ -23,7 +23,7 @@
       </div>
       <div class="card-body p-4">
         <form method="post"
-              action="{{ url_for('chain_update', chain_id=chain.id) if chain else url_for('chain_new') }}">
+              action="{{ url_for('chains.chain_update', chain_id=chain.id) if chain else url_for('chains.chain_new') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
@@ -43,7 +43,7 @@
           <button type="submit" class="btn btn-primary">
             <i class="bi bi-floppy-fill me-2"></i>{{ 'Save Changes' if chain else 'Create Chain' }}
           </button>
-          <a href="{{ url_for('chains') }}" class="btn btn-secondary ms-2">Cancel</a>
+          <a href="{{ url_for('chains.chains') }}" class="btn btn-secondary ms-2">Cancel</a>
         </form>
       </div>
     </div>

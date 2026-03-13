@@ -2,7 +2,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0"><i class="bi bi-people-fill me-2"></i>Users</h4>
-  <a href="{{ url_for('user_new') }}" class="btn btn-primary btn-sm">
+  <a href="{{ url_for('users.user_new') }}" class="btn btn-primary btn-sm">
     <i class="bi bi-person-plus me-1"></i>Add User
   </a>
 </div>
@@ -46,12 +46,12 @@
           </td>
           <td class="text-muted small">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
           <td class="text-end">
-            <a href="{{ url_for('user_edit', user_id=u.id) }}"
+            <a href="{{ url_for('users.user_edit', user_id=u.id) }}"
                class="btn btn-secondary btn-sm me-1">
               <i class="bi bi-pencil"></i>
             </a>
             {% if u.id != current_user.id %}
-            <form method="post" action="{{ url_for('user_delete', user_id=u.id) }}"
+            <form method="post" action="{{ url_for('users.user_delete', user_id=u.id) }}"
                   class="d-inline"
                   onsubmit="return confirm('Delete user {{ u.username }}?')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

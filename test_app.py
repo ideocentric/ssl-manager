@@ -38,6 +38,7 @@
 #                 Copyright (C) 2026  Matt Comeione / ideocentric
 # ==============================================================================
 
+import importlib.util
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -51,24 +52,19 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
-from sqlalchemy.pool import StaticPool
-
-import app as app_module
-from app import (
-    AuditLog,
-    Certificate,
-    CertChain,
-    IntermediateCert,
-    Settings,
-    User,
+from app.crypto import (
     create_components_zip,
     create_pkcs12,
-    db,
     generate_key_and_csr,
-    normalize_alias,
     parse_cert_expiry,
     parse_pem_bundle,
 )
+from app.extensions import db
+from app.models import AuditLog, Certificate, CertChain, IntermediateCert, Settings, User
+from app.validators import normalize_alias
+
+TEST_ADMIN_USERNAME = "admin"
+TEST_ADMIN_PASSWORD = "testpassword123"
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +130,6 @@ def _key_pem(key):
 # Fixtures
 # ---------------------------------------------------------------------------
 
-TEST_ADMIN_USERNAME = "admin"
-TEST_ADMIN_PASSWORD = "testpassword123"
-
 
 @pytest.fixture(scope="session")
 def rsa_key():
@@ -152,81 +145,6 @@ def signed_cert_pem(rsa_key):
 @pytest.fixture(scope="session")
 def key_pem(rsa_key):
     return _key_pem(rsa_key)
-
-
-@pytest.fixture(scope="session")
-def flask_app():
-    """Single Flask app instance for the whole test session.
-
-    Flask-SQLAlchemy reads config at init_app() time and blocks
-    re-initialisation after the first request.  Using session scope
-    means init_app() runs exactly once, before any request is made.
-    StaticPool forces all connections to share the same in-memory
-    database so fixture writes and request-handler reads see the same
-    data.
-    """
-    app_module.app.config.update(
-        TESTING=True,
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        SQLALCHEMY_ENGINE_OPTIONS={
-            "connect_args": {"check_same_thread": False},
-            "poolclass": StaticPool,
-        },
-        SECRET_KEY="test-secret",
-        WTF_CSRF_ENABLED=False,
-    )
-    # Re-initialise before any request is handled so Flask allows it.
-    app_module.app.extensions.pop("sqlalchemy", None)
-    db.init_app(app_module.app)
-
-    with app_module.app.app_context():
-        db.create_all()
-        admin = User(username=TEST_ADMIN_USERNAME, email="admin@test.com", role="superadmin")
-        admin.set_password(TEST_ADMIN_PASSWORD)
-        db.session.add(Settings(key_size=2048))
-        db.session.add(admin)
-        db.session.commit()
-        yield app_module.app
-        db.drop_all()
-
-
-@pytest.fixture(autouse=True)
-def clean_db(flask_app):
-    """Truncate all tables and re-seed Settings + admin user after each test."""
-    yield
-    with flask_app.app_context():
-        for table in reversed(db.metadata.sorted_tables):
-            db.session.execute(table.delete())
-        admin = User(username=TEST_ADMIN_USERNAME, email="admin@test.com", role="superadmin")
-        admin.set_password(TEST_ADMIN_PASSWORD)
-        db.session.add(Settings(key_size=2048))
-        db.session.add(admin)
-        db.session.commit()
-    # Clear Flask-Login's cached user from the persistent app context's g object.
-    # Because flask_app fixture holds an app_context open for the whole session,
-    # Flask reuses it for all requests, making g._login_user persist across tests.
-    from flask import g as flask_g
-    from flask.globals import _cv_app
-    app_ctx = _cv_app.get(None)
-    if app_ctx is not None and hasattr(app_ctx, "g"):
-        app_ctx.g.pop("_login_user", None)
-
-
-@pytest.fixture()
-def client(flask_app):
-    """Test client pre-authenticated as the test superadmin."""
-    with flask_app.test_client() as c:
-        c.post("/login", data={
-            "username": TEST_ADMIN_USERNAME,
-            "password": TEST_ADMIN_PASSWORD,
-        }, follow_redirects=True)
-        yield c
-
-
-@pytest.fixture()
-def anon_client(flask_app):
-    """Unauthenticated test client."""
-    return flask_app.test_client(use_cookies=True)
 
 
 @pytest.fixture()
@@ -604,7 +522,6 @@ class TestCertificateNewRoute:
     def test_settings_prepopulate_form(self, client, flask_app):
         """Settings values should pre-fill the new certificate form."""
         with flask_app.app_context():
-            from app import Settings, db
             s = Settings.query.first()
             s.country = "DE"
             s.state = "Bavaria"
@@ -807,6 +724,10 @@ class TestDownloadPkcs12:
         assert resp.status_code == 302
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("jks") is None,
+    reason="pyjks not installed",
+)
 class TestDownloadJks:
     def test_returns_bytes(self, client, cert_record):
         resp = client.post(f"/certificates/{cert_record}/download/jks",
@@ -947,7 +868,6 @@ class TestProfilesRoute:
 
     def test_profile_duplicate_name_rejected(self, client, flask_app):
         with flask_app.app_context():
-            from app import Settings, db
             existing = Settings.query.first()
             name = existing.name
         resp = client.post("/profiles/new", data={
@@ -960,7 +880,6 @@ class TestProfilesRoute:
 
     def test_profile_edit_saves_values(self, client, flask_app):
         with flask_app.app_context():
-            from app import Settings, db
             profile = Settings.query.first()
             pid = profile.id
         client.post(f"/profiles/{pid}/edit", data={
@@ -978,7 +897,6 @@ class TestProfilesRoute:
 
     def test_cannot_delete_last_profile(self, client, flask_app):
         with flask_app.app_context():
-            from app import Settings, db
             assert Settings.query.count() == 1
             pid = Settings.query.first().id
         resp = client.post(f"/profiles/{pid}/delete", follow_redirects=True)
@@ -992,19 +910,16 @@ class TestProfilesRoute:
             "city": "", "org_name": "", "org_unit": "", "email": "",
         })
         with flask_app.app_context():
-            from app import Settings, db
             second = Settings.query.filter_by(name="Secondary").first()
             sid = second.id
         resp = client.post(f"/profiles/{sid}/set-default", follow_redirects=True)
         assert resp.status_code == 200
         with flask_app.app_context():
-            from app import Settings, db
             assert Settings.query.filter_by(name="Secondary", is_default=True).count() == 1
             assert Settings.query.filter_by(is_default=True).count() == 1
 
     def test_invalid_key_size_defaults_to_2048(self, client, flask_app):
         with flask_app.app_context():
-            from app import Settings, db
             pid = Settings.query.first().id
         client.post(f"/profiles/{pid}/edit", data={
             "name": "Default",

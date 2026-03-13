@@ -7,7 +7,7 @@
         <h4 class="card-title mb-4 text-center">
           <i class="bi bi-shield-lock-fill me-2 text-primary"></i>Sign In
         </h4>
-        <form method="post" action="{{ url_for('login') }}">
+        <form method="post" action="{{ url_for('auth.login') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label" for="username">Username</label>

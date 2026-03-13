@@ -9,16 +9,16 @@
     {% endif %}
   </div>
   <div class="d-flex gap-2">
-    <a href="{{ url_for('chain_intermediate_form_new', chain_id=chain.id) }}" class="btn btn-primary">
+    <a href="{{ url_for('chains.chain_intermediate_form_new', chain_id=chain.id) }}" class="btn btn-primary">
       <i class="bi bi-plus-lg me-1"></i>Add Certificate
     </a>
-    <a href="{{ url_for('chain_import', chain_id=chain.id) }}" class="btn btn-primary">
+    <a href="{{ url_for('chains.chain_import', chain_id=chain.id) }}" class="btn btn-primary">
       <i class="bi bi-cloud-upload me-1"></i>Import Bundle
     </a>
-    <a href="{{ url_for('chain_edit', chain_id=chain.id) }}" class="btn btn-secondary">
+    <a href="{{ url_for('chains.chain_edit', chain_id=chain.id) }}" class="btn btn-secondary">
       <i class="bi bi-pencil me-1"></i>Edit
     </a>
-    <a href="{{ url_for('chains') }}" class="btn btn-secondary">
+    <a href="{{ url_for('chains.chains') }}" class="btn btn-secondary">
       <i class="bi bi-arrow-left me-1"></i>Back
     </a>
   </div>
@@ -92,11 +92,11 @@
             {% endif %}
           </td>
           <td class="align-middle text-end">
-            <a href="{{ url_for('chain_intermediate_edit', chain_id=chain.id, ic_id=ic.id) }}"
+            <a href="{{ url_for('chains.chain_intermediate_edit', chain_id=chain.id, ic_id=ic.id) }}"
                class="btn btn-sm btn-secondary me-1">
               <i class="bi bi-pencil me-1"></i>Edit
             </a>
-            <form action="{{ url_for('chain_intermediate_delete', chain_id=chain.id, ic_id=ic.id) }}"
+            <form action="{{ url_for('chains.chain_intermediate_delete', chain_id=chain.id, ic_id=ic.id) }}"
                   method="post" class="d-inline"
                   onsubmit="return confirm('Delete certificate \'{{ ic.name }}\'?')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -117,7 +117,7 @@
     <i class="bi bi-diagram-2 display-4 text-muted mb-3 d-block"></i>
     <h5 class="text-muted">No certificates in this chain yet</h5>
     <p class="text-muted mb-4">Add intermediate and root CA certificates to build the trust chain.</p>
-    <a href="{{ url_for('chain_intermediate_form_new', chain_id=chain.id) }}" class="btn btn-primary">
+    <a href="{{ url_for('chains.chain_intermediate_form_new', chain_id=chain.id) }}" class="btn btn-primary">
       <i class="bi bi-plus-lg me-1"></i>Add Certificate
     </a>
   </div>
@@ -154,7 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const payload = getRows().map(function (row, idx) {
       return { id: parseInt(row.dataset.id), order: idx };
     });
-    fetch('{{ url_for("chain_reorder", chain_id=chain.id) }}', {
+    fetch('{{ url_for("chains.chain_reorder", chain_id=chain.id) }}', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

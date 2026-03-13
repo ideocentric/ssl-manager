@@ -9,7 +9,7 @@
                 'bi-sort-up'   if (cur_sort == col and cur_dir == 'asc')  else
                 'bi-arrow-down-up text-secondary' %}
   <th {% if width %}style="width:{{ width }};"{% endif %}>
-    <a href="{{ url_for('audit_log_view', page=1, sort=col, dir=next_dir, per_page=cur_per_page, q=cur_q) }}"
+    <a href="{{ url_for('admin.audit_log_view', page=1, sort=col, dir=next_dir, per_page=cur_per_page, q=cur_q) }}"
        class="text-decoration-none text-reset d-inline-flex align-items-center gap-1"
        style="white-space:nowrap;">
       {{ label }}<i class="bi {{ icon }} ms-1 small"></i>
@@ -36,7 +36,7 @@
 {# ------------------------------------------------------------------ toolbar #}
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
   {# Search bar #}
-  <form method="get" action="{{ url_for('audit_log_view') }}"
+  <form method="get" action="{{ url_for('admin.audit_log_view') }}"
         class="flex-grow-1" style="min-width:200px; max-width:480px;">
     <input type="hidden" name="sort"     value="{{ sort_col }}">
     <input type="hidden" name="dir"      value="{{ sort_dir }}">
@@ -47,7 +47,7 @@
              placeholder="Search user, action, result, detail…"
              value="{{ q }}" autocomplete="off">
       {% if q %}
-      <a href="{{ url_for('audit_log_view') }}"
+      <a href="{{ url_for('admin.audit_log_view') }}"
          class="btn btn-outline-secondary" title="Clear search">
         <i class="bi bi-x-lg"></i>
       </a>
@@ -58,7 +58,7 @@
   {# Per-page selector #}
   <div class="btn-group btn-group-sm" role="group" aria-label="Rows per page">
     {% for n in [20, 50, 100] %}
-    <a href="{{ url_for('audit_log_view', page=1, sort=sort_col, dir=sort_dir, per_page=n, q=q) }}"
+    <a href="{{ url_for('admin.audit_log_view', page=1, sort=sort_col, dir=sort_dir, per_page=n, q=q) }}"
        class="btn {{ 'btn-primary' if per_page == n else 'btn-outline-secondary' }}">
       {{ n }}
     </a>
@@ -129,7 +129,7 @@
   <ul class="pagination pagination-sm justify-content-center mb-0">
     <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
       <a class="page-link"
-         href="{{ url_for('audit_log_view', page=pagination.prev_num, sort=sort_col, dir=sort_dir, per_page=per_page, q=q) }}">
+         href="{{ url_for('admin.audit_log_view', page=pagination.prev_num, sort=sort_col, dir=sort_dir, per_page=per_page, q=q) }}">
         Previous
       </a>
     </li>
@@ -137,7 +137,7 @@
       {% if p %}
         <li class="page-item {{ 'active' if p == pagination.page }}">
           <a class="page-link"
-             href="{{ url_for('audit_log_view', page=p, sort=sort_col, dir=sort_dir, per_page=per_page, q=q) }}">
+             href="{{ url_for('admin.audit_log_view', page=p, sort=sort_col, dir=sort_dir, per_page=per_page, q=q) }}">
             {{ p }}
           </a>
         </li>
@@ -147,7 +147,7 @@
     {% endfor %}
     <li class="page-item {{ 'disabled' if not pagination.has_next }}">
       <a class="page-link"
-         href="{{ url_for('audit_log_view', page=pagination.next_num, sort=sort_col, dir=sort_dir, per_page=per_page, q=q) }}">
+         href="{{ url_for('admin.audit_log_view', page=pagination.next_num, sort=sort_col, dir=sort_dir, per_page=per_page, q=q) }}">
         Next
       </a>
     </li>

@@ -10,25 +10,26 @@ This document walks through the complete certificate lifecycle from first login 
    - [Starting the stack](#11-starting-the-stack)
    - [Testing backups and audit log](#12-testing-backups-and-audit-log)
    - [Common Docker commands](#13-common-docker-commands)
-2. [First-Run Setup](#2-first-run-setup)
-3. [Configure Certificate Profiles](#3-configure-certificate-profiles)
-4. [Set Up Certificate Chains](#4-set-up-certificate-chains)
-   - [Testing: Local Dev CA](#41-testing-with-the-local-dev-ca)
-   - [Production: Real CA Intermediates](#42-production-real-ca-intermediates)
-5. [Browse and Search Certificates](#5-browse-and-search-certificates)
-6. [Create a New Certificate](#6-create-a-new-certificate)
-7. [Sign the CSR](#7-sign-the-csr)
-   - [Testing: Sign with dev_ca.py](#71-testing-sign-with-dev_capy)
-   - [Production: Submit to a Real CA](#72-production-submit-to-a-real-ca)
-8. [Upload the Signed Certificate](#8-upload-the-signed-certificate)
-9. [Export Formats](#9-export-formats)
-10. [Verification](#10-verification)
-    - [Component ZIP / PEM files](#101-component-zip--pem-files)
-    - [Full Chain PEM](#102-full-chain-pem)
-    - [PKCS#12 / PFX](#103-pkcs12--pfx)
-    - [JKS](#104-jks)
-    - [P7B](#105-p7b)
-11. [User Management](#11-user-management)
+2. [Unit Tests](#2-unit-tests)
+3. [First-Run Setup](#3-first-run-setup)
+4. [Configure Certificate Profiles](#4-configure-certificate-profiles)
+5. [Set Up Certificate Chains](#5-set-up-certificate-chains)
+   - [Testing: Local Dev CA](#51-testing-with-the-local-dev-ca)
+   - [Production: Real CA Intermediates](#52-production-real-ca-intermediates)
+6. [Browse and Search Certificates](#6-browse-and-search-certificates)
+7. [Create a New Certificate](#7-create-a-new-certificate)
+8. [Sign the CSR](#8-sign-the-csr)
+   - [Testing: Sign with dev_ca.py](#81-testing-sign-with-dev_capy)
+   - [Production: Submit to a Real CA](#82-production-submit-to-a-real-ca)
+9. [Upload the Signed Certificate](#9-upload-the-signed-certificate)
+10. [Export Formats](#10-export-formats)
+11. [Verification](#11-verification)
+    - [Component ZIP / PEM files](#111-component-zip--pem-files)
+    - [Full Chain PEM](#112-full-chain-pem)
+    - [PKCS#12 / PFX](#113-pkcs12--pfx)
+    - [JKS](#114-jks)
+    - [P7B](#115-p7b)
+12. [User Management](#12-user-management)
 
 ---
 
@@ -141,7 +142,57 @@ docker compose exec ssl-manager \
 
 ---
 
-## 2. First-Run Setup
+## 2. Unit Tests
+
+The test suite uses pytest with an in-memory SQLite database via `StaticPool`. No running app instance is required.
+
+### Install test dependencies
+
+```bash
+pip install -r requirements.txt
+pip install pytest
+```
+
+### Run all tests
+
+```bash
+pytest test_app.py
+```
+
+### Common options
+
+```bash
+# Verbose — one line per test
+pytest test_app.py -v
+
+# Stop on first failure
+pytest test_app.py -x
+
+# Compact tracebacks
+pytest test_app.py --tb=short
+
+# Run a specific test class
+pytest test_app.py -k "TestAuditLog"
+
+# Run a specific test
+pytest test_app.py -k "test_login_valid"
+
+# Combine options
+pytest test_app.py -v --tb=short -k "TestCertificate"
+```
+
+### Test structure
+
+| File | Purpose |
+|---|---|
+| `conftest.py` | Session-scoped `flask_app` fixture (factory pattern), `client`, `anon_client`, `clean_db` |
+| `test_app.py` | All test classes: crypto helpers, model properties, route integration tests |
+
+Tests that exercise the JKS download format require `pyjks` to be installed. If `pyjks` is absent those three tests will fail; all others pass independently.
+
+---
+
+## 3. First-Run Setup
 
 On the very first visit the app detects that no users exist and redirects to `/setup`.
 
@@ -160,7 +211,7 @@ You are logged in automatically and land on the **Certificates** page. This acco
 
 ---
 
-## 3. Configure Certificate Profiles
+## 4. Configure Certificate Profiles
 
 **Navigate:** Navbar → **Profiles**
 
@@ -204,7 +255,7 @@ The last remaining profile cannot be deleted. All others can be removed at any t
 
 ---
 
-## 4. Set Up Certificate Chains
+## 5. Set Up Certificate Chains
 
 **Navigate:** Navbar → **Chains**
 
@@ -239,7 +290,7 @@ If your CA provides a bundle file containing multiple certificates in a single P
 
 When creating a certificate you select which chain to assign. The assignment can also be changed later from the Certificate Detail page. One chain can be shared by many certificates. When you rotate to a new CA, create a new chain, point new certificates at it, and leave existing certificates on the old chain.
 
-### 4.1 Testing with the Local Dev CA
+### 5.1 Testing with the Local Dev CA
 
 The `dev_ca.py` script creates a two-tier hierarchy (root → intermediate) that mirrors a real CA.
 
@@ -270,7 +321,7 @@ In the app, create a chain under **Chains → New Chain**, then on the Chain Det
 
 The **Chain Detail** page now shows both entries with their subject, expiry, and CA type.
 
-### 4.2 Production: Real CA Intermediates
+### 5.2 Production: Real CA Intermediates
 
 When using a CA such as GoDaddy, DigiCert, or Sectigo:
 
@@ -288,7 +339,7 @@ When using a CA such as GoDaddy, DigiCert, or Sectigo:
 
 ---
 
-## 5. Browse and Search Certificates
+## 6. Browse and Search Certificates
 
 **Navigate:** Navbar → **Certificates**
 
@@ -315,7 +366,7 @@ A counter on the right side of the search bar shows **N of M certificates**, ref
 
 ---
 
-## 6. Create a New Certificate
+## 7. Create a New Certificate
 
 **Navigate:** Navbar → **Certificates** → **New Certificate**
 
@@ -344,11 +395,11 @@ The app:
 
 ---
 
-## 7. Sign the CSR
+## 8. Sign the CSR
 
 On the **Certificate Detail** page, the CSR is displayed in the **Certificate Signing Request** section.
 
-### 7.1 Testing: Sign with dev_ca.py
+### 8.1 Testing: Sign with dev_ca.py
 
 ```bash
 # Download the CSR from the Certificate Detail page (Download CSR button)
@@ -363,7 +414,7 @@ The signed certificate PEM is printed to the terminal and saved to `dev-ca/signe
 python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 ```
 
-### 7.2 Production: Submit to a Real CA
+### 8.2 Production: Submit to a Real CA
 
 1. On the **Certificate Detail** page click **Download CSR** to save the `.csr` file.
 2. Log in to your CA's portal (GoDaddy, DigiCert, Sectigo, etc.).
@@ -375,7 +426,7 @@ python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 
 ---
 
-## 8. Upload the Signed Certificate
+## 9. Upload the Signed Certificate
 
 **Navigate:** Certificate Detail page → **Upload Signed Certificate** section
 
@@ -401,7 +452,7 @@ The **Downloads** section is now unlocked.
 
 ---
 
-## 9. Export Formats
+## 10. Export Formats
 
 All download options appear in the **Downloads** section of the Certificate Detail page. The chain certificates loaded in Step 3 are automatically included in every bundled format.
 
@@ -503,11 +554,11 @@ Contains: signed certificate + all intermediates in PKCS#7 DER format. **Does no
 
 ---
 
-## 10. Verification
+## 11. Verification
 
 Use these commands to inspect and verify each format after downloading. Replace filenames with your actual domain.
 
-### 10.1 Component ZIP / PEM files
+### 11.1 Component ZIP / PEM files
 
 **Inspect the certificate:**
 ```bash
@@ -541,7 +592,7 @@ This lists every certificate in the chain with its subject and issuer.
 
 ---
 
-### 10.2 Full Chain PEM
+### 11.2 Full Chain PEM
 
 **Split and inspect each cert** (the file contains key + cert + intermediates concatenated):
 ```bash
@@ -554,7 +605,7 @@ openssl x509 -in www.example.com-fullchain.pem -text -noout
 
 ---
 
-### 10.3 PKCS#12 / PFX
+### 11.3 PKCS#12 / PFX
 
 **List contents:**
 ```bash
@@ -583,7 +634,7 @@ openssl rsa  -noout -modulus -in extracted_key.pem  | md5sum
 
 ---
 
-### 10.4 JKS
+### 11.4 JKS
 
 Requires the Java `keytool` utility (included with any JDK).
 
@@ -606,7 +657,7 @@ keytool -list -v -keystore www.example.com.jks -storepass changeit \
 
 ---
 
-### 10.5 P7B
+### 11.5 P7B
 
 **List all certificates in the bundle:**
 ```bash
@@ -625,7 +676,7 @@ openssl x509  -in bundle.pem -text -noout
 
 ---
 
-## 11. User Management
+## 12. User Management
 
 User management is available to **superadmin** accounts only.
 

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0"><i class="bi bi-sliders me-2"></i>Certificate Profiles</h4>
-  <a href="{{ url_for('profile_new') }}" class="btn btn-primary btn-sm">
+  <a href="{{ url_for('profiles.profile_new') }}" class="btn btn-primary btn-sm">
     <i class="bi bi-plus-circle me-1"></i>New Profile
   </a>
 </div>
@@ -42,7 +42,7 @@
         <td>{{ p.email or '—' }}</td>
         <td class="text-end text-nowrap">
           {% if not p.is_default %}
-          <form method="post" action="{{ url_for('profile_set_default', profile_id=p.id) }}" class="d-inline">
+          <form method="post" action="{{ url_for('profiles.profile_set_default', profile_id=p.id) }}" class="d-inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-success btn-sm"
                     title="Make default">
@@ -50,12 +50,12 @@
             </button>
           </form>
           {% endif %}
-          <a href="{{ url_for('profile_edit', profile_id=p.id) }}"
+          <a href="{{ url_for('profiles.profile_edit', profile_id=p.id) }}"
              class="btn btn-secondary btn-sm ms-1">
             <i class="bi bi-pencil me-1"></i>Edit
           </a>
           {% if profiles|length > 1 %}
-          <form method="post" action="{{ url_for('profile_delete', profile_id=p.id) }}"
+          <form method="post" action="{{ url_for('profiles.profile_delete', profile_id=p.id) }}"
                 class="d-inline ms-1"
                 onsubmit="return confirm('Delete profile \"{{ p.name|e }}\"?');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -72,7 +72,7 @@
 </div>
 {% else %}
 <div class="alert alert-info">
-  No profiles yet. <a href="{{ url_for('profile_new') }}">Create one</a> to set organization defaults for new certificates.
+  No profiles yet. <a href="{{ url_for('profiles.profile_new') }}">Create one</a> to set organization defaults for new certificates.
 </div>
 {% endif %}
 {% endblock %}

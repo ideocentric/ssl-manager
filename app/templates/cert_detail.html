@@ -14,10 +14,10 @@
     {% endif %}
   </h2>
   <div class="d-flex gap-2">
-    <a href="{{ url_for('certificate_renew', cert_id=cert.id) }}" class="btn btn-primary">
+    <a href="{{ url_for('certificates.certificate_renew', cert_id=cert.id) }}" class="btn btn-primary">
       <i class="bi bi-arrow-repeat me-1"></i>Renew / Rekey
     </a>
-    <a href="{{ url_for('certificates') }}" class="btn btn-secondary">
+    <a href="{{ url_for('certificates.certificates') }}" class="btn btn-secondary">
       <i class="bi bi-arrow-left me-1"></i>Back
     </a>
   </div>
@@ -78,7 +78,7 @@
 <div class="card shadow-sm section-card">
   <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Certificate Chain</h6></div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('certificate_set_chain', cert_id=cert.id) }}" class="d-flex align-items-end gap-3">
+    <form method="post" action="{{ url_for('certificates.certificate_set_chain', cert_id=cert.id) }}" class="d-flex align-items-end gap-3">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="flex-grow-1">
         <label class="form-label fw-semibold mb-1">Assigned Chain</label>
@@ -97,7 +97,7 @@
     </form>
     <div class="form-text mt-2">
       The selected chain's intermediate certificates will be included in all downloads for this certificate.
-      <a href="{{ url_for('chains') }}">Manage chains</a>
+      <a href="{{ url_for('chains.chains') }}">Manage chains</a>
     </div>
   </div>
 </div>
@@ -115,7 +115,7 @@
     </div>
     {% endif %}
     <pre class="pem-block">{{ cert.csr_pem }}</pre>
-    <a href="{{ url_for('download_csr', cert_id=cert.id) }}" class="btn btn-primary mt-2">
+    <a href="{{ url_for('certificates.download_csr', cert_id=cert.id) }}" class="btn btn-primary mt-2">
       <i class="bi bi-download me-2"></i>Download CSR
     </a>
   </div>
@@ -130,7 +130,7 @@
   </div>
   <div class="card-body">
     <p class="text-muted">Provide the signed certificate PEM you received from your Certificate Authority — either upload a file or paste the PEM text below.</p>
-    <form method="post" action="{{ url_for('certificate_upload', cert_id=cert.id) }}"
+    <form method="post" action="{{ url_for('certificates.certificate_upload', cert_id=cert.id) }}"
           enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
@@ -145,7 +145,7 @@
         <textarea name="signed_cert_pem" class="form-control font-monospace" rows="8"
                   placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                   style="font-size:0.8rem;"></textarea>
-        <div class="form-text">Paste only the leaf certificate (not the chain). Manage intermediate certificates in <a href="{{ url_for('chains') }}">Chains</a>.</div>
+        <div class="form-text">Paste only the leaf certificate (not the chain). Manage intermediate certificates in <a href="{{ url_for('chains.chains') }}">Chains</a>.</div>
       </div>
       <button type="submit" class="btn btn-success">
         <i class="bi bi-floppy-fill me-2"></i>Save Certificate
@@ -212,7 +212,7 @@
           </div>
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Private key + certificate + intermediates in a single PEM file.</p>
-            <a href="{{ url_for('download_fullchain', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
+            <a href="{{ url_for('certificates.download_fullchain', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .pem
             </a>
           </div>
@@ -227,7 +227,7 @@
           </div>
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Separate PEM files for private key, certificate, intermediates, and fullchain in a ZIP archive.</p>
-            <a href="{{ url_for('download_components', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
+            <a href="{{ url_for('certificates.download_components', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .zip
             </a>
           </div>
@@ -242,7 +242,7 @@
           </div>
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">PKCS#7 bundle containing the certificate and chain. Does not include the private key.</p>
-            <a href="{{ url_for('download_p7b', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
+            <a href="{{ url_for('certificates.download_p7b', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .p7b
             </a>
           </div>
@@ -257,7 +257,7 @@
           </div>
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Binary-encoded certificate only. No private key, no chain. Used by some Java and Windows tools.</p>
-            <a href="{{ url_for('download_der', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
+            <a href="{{ url_for('certificates.download_der', cert_id=cert.id) }}" class="btn btn-success-light btn-sm">
               <i class="bi bi-download me-1"></i>Download .der
             </a>
           </div>
@@ -272,7 +272,7 @@
           </div>
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Password-protected bundle with private key + certificate chain. Used by IIS, Windows, Java, etc.</p>
-            <form method="post" action="{{ url_for('download_pkcs12', cert_id=cert.id) }}" class="mt-auto">
+            <form method="post" action="{{ url_for('certificates.download_pkcs12', cert_id=cert.id) }}" class="mt-auto">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="input-group input-group-sm mb-2">
                 <span class="input-group-text" style="min-width:5rem;">Name</span>
@@ -301,7 +301,7 @@
           </div>
           <div class="card-body d-flex flex-column">
             <p class="card-text text-muted small flex-grow-1">Java KeyStore format for Java application servers (Tomcat, Spring Boot, etc.).</p>
-            <form method="post" action="{{ url_for('download_jks', cert_id=cert.id) }}" class="mt-auto">
+            <form method="post" action="{{ url_for('certificates.download_jks', cert_id=cert.id) }}" class="mt-auto">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="input-group input-group-sm mb-2">
                 <span class="input-group-text" style="min-width:5rem;">Name</span>
@@ -330,7 +330,7 @@
 <div class="danger-zone section-card">
   <h6 class="text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Danger Zone</h6>
   <p class="text-muted small mb-3">Permanently delete this certificate and its private key. This action cannot be undone.</p>
-  <form method="post" action="{{ url_for('certificate_delete', cert_id=cert.id) }}"
+  <form method="post" action="{{ url_for('certificates.certificate_delete', cert_id=cert.id) }}"
         onsubmit="return confirm('Permanently delete certificate for {{ cert.domain }}? This cannot be undone.')">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-danger">

@@ -14,14 +14,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+COPY wsgi.py .
+COPY app/ app/
 COPY backup.sh .
-COPY templates/ templates/
-COPY static/ static/
 
 # Persist the SQLite database via a volume
 VOLUME ["/app/instance"]
 
 EXPOSE 5001
 
-CMD ["python", "app.py"]
+CMD ["python", "wsgi.py"]

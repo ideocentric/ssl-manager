@@ -31,7 +31,7 @@
         </div>
         {% endif %}
 
-        <form method="post" action="{{ url_for('certificate_new') }}" id="certForm">
+        <form method="post" action="{{ url_for('certificates.certificate_new') }}" id="certForm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
           {# ---- Profile selector (hidden during renew; renew always uses the existing cert's values) ---- #}
@@ -90,7 +90,7 @@
             {% if profiles|length > 1 %}
             the selected profile. Use the <strong>Apply</strong> button above to reload from a different profile.
             {% else %}
-            <a href="{{ url_for('profiles') }}">profile settings</a>.
+            <a href="{{ url_for('profiles.profiles') }}">profile settings</a>.
             {% endif %}
             Override individual fields as needed.
           </p>
@@ -167,9 +167,9 @@
               <i class="bi bi-key-fill me-2"></i>Generate RSA Key &amp; CSR
             </button>
             {% if renew_from %}
-            <a href="{{ url_for('certificate_detail', cert_id=renew_from.id) }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
+            <a href="{{ url_for('certificates.certificate_detail', cert_id=renew_from.id) }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
             {% else %}
-            <a href="{{ url_for('certificates') }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
+            <a href="{{ url_for('certificates.certificates') }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
             {% endif %}
           </div>
         </form>

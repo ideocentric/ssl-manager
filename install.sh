@@ -201,15 +201,14 @@ create_directories() {
 
 copy_app_files() {
     info "Copying application files to ${APP_DIR}…"
-    cp "${SCRIPT_DIR}/app.py"           "${APP_DIR}/"
+    cp "${SCRIPT_DIR}/wsgi.py"          "${APP_DIR}/"
     cp "${SCRIPT_DIR}/requirements.txt" "${APP_DIR}/"
     cp "${SCRIPT_DIR}/backup.sh"        "${APP_DIR}/"
-    cp -r "${SCRIPT_DIR}/templates"     "${APP_DIR}/"
-    cp -r "${SCRIPT_DIR}/static"        "${APP_DIR}/"
+    cp -r "${SCRIPT_DIR}/app"           "${APP_DIR}/"
 
     # Install systemd backup units (owned by root, not inside APP_DIR)
-    cp "${SCRIPT_DIR}/ssl-manager-backup.service" "${BACKUP_SERVICE_FILE}"
-    cp "${SCRIPT_DIR}/ssl-manager-backup.timer"   "${BACKUP_TIMER_FILE}"
+    cp "${SCRIPT_DIR}/deploy/systemd/ssl-manager-backup.service" "${BACKUP_SERVICE_FILE}"
+    cp "${SCRIPT_DIR}/deploy/systemd/ssl-manager-backup.timer"   "${BACKUP_TIMER_FILE}"
     chmod 644 "${BACKUP_SERVICE_FILE}" "${BACKUP_TIMER_FILE}"
     # root owns files; ssl-manager group can read/execute — not world-readable
     chown -R root:"${SERVICE_USER}" "${APP_DIR}"
@@ -272,7 +271,7 @@ ExecStart=${APP_DIR}/venv/bin/gunicorn \\
     --timeout 120 \\
     --access-logfile ${LOG_DIR}/access.log \\
     --error-logfile  ${LOG_DIR}/error.log \\
-    app:app
+    wsgi:app
 
 ExecReload=/bin/kill -s HUP \$MAINPID
 KillMode=mixed
@@ -353,7 +352,7 @@ server {
 
     # Serve static assets directly — bypass gunicorn for CSS/JS/icons
     location /static/ {
-        alias ${APP_DIR}/static/;
+        alias ${APP_DIR}/app/static/;
         expires 30d;
         add_header Cache-Control "public, no-transform";
         # Static files need no CSRF or auth headers

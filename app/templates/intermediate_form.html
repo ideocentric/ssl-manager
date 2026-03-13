@@ -74,7 +74,7 @@
             <button type="submit" class="btn btn-primary">
               <i class="bi bi-floppy-fill me-2"></i>{{ 'Save Changes' if cert else 'Add Certificate' }}
             </button>
-            <a href="{{ url_for('chain_detail', chain_id=chain.id) }}" class="btn btn-secondary ms-2">Cancel</a>
+            <a href="{{ url_for('chains.chain_detail', chain_id=chain.id) }}" class="btn btn-secondary ms-2">Cancel</a>
           </div>
         </form>
       </div>

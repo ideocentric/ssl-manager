@@ -18,7 +18,7 @@
         </p>
 
         <form method="post"
-              action="{{ url_for('profile_new') if action == 'new' else url_for('profile_edit', profile_id=profile.id) }}">
+              action="{{ url_for('profiles.profile_new') if action == 'new' else url_for('profiles.profile_edit', profile_id=profile.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
           <div class="mb-4">
@@ -87,7 +87,7 @@
             <button type="submit" class="btn btn-primary">
               <i class="bi bi-floppy-fill me-2"></i>Save Profile
             </button>
-            <a href="{{ url_for('profiles') }}" class="btn btn-secondary">Cancel</a>
+            <a href="{{ url_for('profiles.profiles') }}" class="btn btn-secondary">Cancel</a>
           </div>
         </form>
       </div>

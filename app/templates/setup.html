@@ -10,7 +10,7 @@
         <p class="text-muted mb-4">
           No users exist yet. Create the first superadmin account to get started.
         </p>
-        <form method="post" action="{{ url_for('setup') }}">
+        <form method="post" action="{{ url_for('auth.setup') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label" for="username">Username</label>
