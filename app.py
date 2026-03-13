@@ -143,13 +143,14 @@ login_manager.login_message_category = "warning"
 # ---------------------------------------------------------------------------
 
 app.logger.setLevel(logging.INFO)
-try:
-    _syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
-    _syslog_handler.setFormatter(logging.Formatter("ssl-manager: %(message)s"))
-    app.logger.addHandler(_syslog_handler)
-except (OSError, AttributeError):
-    # /dev/log unavailable (macOS, minimal Docker, etc.) — console logging only
-    pass
+if os.path.exists("/dev/log"):
+    try:
+        _syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
+        _syslog_handler.setFormatter(logging.Formatter("ssl-manager: %(message)s"))
+        app.logger.addHandler(_syslog_handler)
+    except (OSError, AttributeError):
+        # /dev/log exists but is not connectable — console logging only
+        pass
 
 
 # ---------------------------------------------------------------------------
