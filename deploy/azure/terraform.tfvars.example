@@ -1,0 +1,37 @@
+# Copy this file to terraform.tfvars and fill in the values.
+# terraform.tfvars is listed in .gitignore — never commit it.
+
+# Azure region — run 'az account list-locations -o table' for options
+location = "eastus"
+
+# Resource group name
+resource_group_name = "ssl-manager-rg"
+
+# Short prefix applied to all resource names
+prefix = "ssl-manager"
+
+# VM size — B1ms (1 vCPU / 2 GB) is recommended; B1s (1 vCPU / 1 GB) is minimum
+vm_size = "Standard_B1ms"
+
+# Linux admin username (root login is disabled)
+admin_username = "sslmgr"
+
+# Paste the contents of your SSH public key (~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub)
+admin_ssh_public_key = "ssh-ed25519 AAAAC3Nz... user@host"
+
+# IP addresses allowed SSH access. Use /32 for single IPs.
+# Add IPs here and run 'terraform apply' to update the NSG rule — no rebuild needed.
+allowed_ssh_ips = [
+  "203.0.113.10/32",   # Office static IP
+  # "198.51.100.5/32", # Home IP — uncomment to add
+]
+
+# OS disk size in GB (30 GB is sufficient for <1000 certificates + 7-day backups)
+os_disk_size_gb = 30
+
+# Tags applied to all resources
+tags = {
+  Project     = "ssl-manager"
+  Environment = "production"
+  ManagedBy   = "terraform"
+}

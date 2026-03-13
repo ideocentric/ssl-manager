@@ -105,6 +105,13 @@ htmlcov/
 *.pem
 *.key
 
+# Terraform — variable files contain SSH keys and IP addresses
+deploy/azure/terraform.tfvars
+deploy/azure/*.tfstate
+deploy/azure/*.tfstate.backup
+deploy/azure/.terraform/
+deploy/azure/.terraform.lock.hcl
+
 # =============================================================================
 # Miscellaneous
 # =============================================================================
