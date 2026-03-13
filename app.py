@@ -300,7 +300,10 @@ class Certificate(db.Model):
     org_name = db.Column(db.String(256), default="")
     org_unit = db.Column(db.String(256), default="")
     email = db.Column(db.String(256), default="")
-    chain_id = db.Column(db.Integer, db.ForeignKey("cert_chain.id"), nullable=True)
+    chain_id   = db.Column(db.Integer, db.ForeignKey("cert_chain.id"),    nullable=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey("settings.id",
+                           ondelete="SET NULL"), nullable=True)
+    profile    = db.relationship("Settings", foreign_keys=[profile_id], lazy="select")
 
     @property
     def san_list(self):
@@ -1156,6 +1159,7 @@ def certificate_new():
             org_unit=org_unit,
             email=email,
             chain_id=chain_id,
+            profile_id=chosen_profile.id if chosen_profile else None,
         )
         db.session.add(cert)
         db.session.commit()
@@ -1889,6 +1893,7 @@ def forbidden(e):
 _ALLOWED_MIGRATIONS = {
     ("intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)"),
     ("certificate",       "chain_id INTEGER REFERENCES cert_chain(id)"),
+    ("certificate",       "profile_id INTEGER REFERENCES settings(id)"),
     ("settings",          "name TEXT NOT NULL DEFAULT 'Default'"),
     ("settings",          "is_default INTEGER NOT NULL DEFAULT 0"),
 }
@@ -1916,6 +1921,7 @@ with app.app_context():
     # Ensure new columns exist on databases created before this schema version
     _add_column_if_missing(db.engine, "intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)")
     _add_column_if_missing(db.engine, "certificate", "chain_id INTEGER REFERENCES cert_chain(id)")
+    _add_column_if_missing(db.engine, "certificate", "profile_id INTEGER REFERENCES settings(id)")
     _add_column_if_missing(db.engine, "settings", "name TEXT NOT NULL DEFAULT 'Default'")
     _add_column_if_missing(db.engine, "settings", "is_default INTEGER NOT NULL DEFAULT 0")
     # Seed initial profile or migrate legacy singleton
@@ -1928,6 +1934,14 @@ with app.app_context():
             first = Settings.query.order_by(Settings.id.asc()).first()
             first.is_default = True
             db.session.commit()
+    # Backfill profile_id for certificates created before profiles were introduced
+    try:
+        default_p = Settings.query.filter_by(is_default=True).first()
+        if default_p:
+            Certificate.query.filter_by(profile_id=None).update({"profile_id": default_p.id})
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
     # Migrate intermediates that pre-date named chains into a "Default Chain"
     try:
         orphans = IntermediateCert.query.filter_by(chain_id=None).all()

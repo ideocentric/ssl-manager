@@ -11,24 +11,39 @@
 {% if certs %}
 <div class="card shadow-sm">
   <div class="card-body p-0">
-    <table class="table table-hover mb-0">
+    <table class="table table-hover mb-0" id="certTable">
       <thead>
         <tr>
-          <th>Domain</th>
-          <th>Status</th>
-          <th>Expiry</th>
-          <th>SANs</th>
+          <th class="sortable" data-col="0" style="cursor:pointer; white-space:nowrap;">
+            Domain <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="1" style="cursor:pointer; white-space:nowrap;">
+            Status <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="2" style="cursor:pointer; white-space:nowrap;">
+            Expiry <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="3" style="cursor:pointer; white-space:nowrap;">
+            SANs <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="4" style="cursor:pointer; white-space:nowrap;">
+            Created <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
           <th class="text-end">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for cert in certs %}
         <tr>
-          <td class="align-middle fw-semibold">
+          {# col 0: domain #}
+          <td class="align-middle fw-semibold" data-sort="{{ cert.domain }}">
             <i class="bi bi-globe me-1 text-secondary"></i>{{ cert.domain }}
           </td>
-          <td class="align-middle">
-            {% set label = cert.status_label %}
+
+          {# col 1: status — sort key puts active first, then pending, then expired #}
+          {% set label = cert.status_label %}
+          <td class="align-middle"
+              data-sort="{{ '0' if label == 'active' else ('1' if label == 'pending_signing' else '2') }}">
             {% if label == 'active' %}
               <span class="badge bg-success">Active</span>
             {% elif label == 'expired' %}
@@ -37,7 +52,10 @@
               <span class="badge bg-warning text-dark">Pending Signing</span>
             {% endif %}
           </td>
-          <td class="align-middle">
+
+          {# col 2: expiry — ISO date string for natural sort; far-future value for no date #}
+          <td class="align-middle"
+              data-sort="{{ cert.expiry_date.strftime('%Y-%m-%d') if cert.expiry_date else '9999-99-99' }}">
             {% if cert.expiry_date %}
               {% set days = cert.days_until_expiry %}
               {% if days is not none %}
@@ -65,15 +83,24 @@
               <span class="text-muted">N/A</span>
             {% endif %}
           </td>
-          <td class="align-middle">
-            {% set san_count = cert.san_list | length %}
+
+          {# col 3: SAN count — numeric sort #}
+          {% set san_count = cert.san_list | length %}
+          <td class="align-middle" data-sort="{{ '%05d' % san_count }}">
             {% if san_count > 0 %}
               <span class="badge bg-secondary">{{ san_count }}</span>
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="align-middle text-end">
+
+          {# col 4: created date — ISO for natural sort #}
+          <td class="align-middle text-muted small"
+              data-sort="{{ cert.created_at.strftime('%Y-%m-%d') }}">
+            {{ cert.created_at.strftime('%Y-%m-%d') }}
+          </td>
+
+          <td class="align-middle text-end text-nowrap">
             <a href="{{ url_for('certificate_detail', cert_id=cert.id) }}" class="btn btn-sm btn-primary me-1">
               <i class="bi bi-eye me-1"></i>View
             </a>
@@ -107,5 +134,55 @@
     </a>
   </div>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if certs %}
+<script>
+(function () {
+  const table   = document.getElementById('certTable');
+  const headers = table.querySelectorAll('th.sortable');
+  let   sortCol = 5;   // default: Created
+  let   sortAsc = false; // newest first
+
+  function sortTable(col, asc) {
+    const tbody = table.tBodies[0];
+    const rows  = Array.from(tbody.rows);
+    rows.sort((a, b) => {
+      const av = a.cells[col].dataset.sort || '';
+      const bv = b.cells[col].dataset.sort || '';
+      return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    rows.forEach(r => tbody.appendChild(r));
+
+    // Update header icons
+    headers.forEach((th, i) => {
+      const icon = th.querySelector('.sort-icon');
+      if (i === col) {
+        icon.className = 'bi ms-1 sort-icon text-primary ' +
+                         (asc ? 'bi-arrow-up' : 'bi-arrow-down');
+      } else {
+        icon.className = 'bi bi-arrow-down-up text-secondary ms-1 sort-icon';
+      }
+    });
+  }
+
+  headers.forEach((th, i) => {
+    th.addEventListener('click', () => {
+      if (sortCol === i) {
+        sortAsc = !sortAsc;
+      } else {
+        sortCol = i;
+        sortAsc = true;
+      }
+      sortTable(sortCol, sortAsc);
+    });
+  });
+
+  // Apply default sort on load
+  sortTable(sortCol, sortAsc);
+})();
+</script>
 {% endif %}
 {% endblock %}
