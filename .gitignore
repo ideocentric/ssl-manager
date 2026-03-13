@@ -111,6 +111,11 @@ deploy/azure/*.tfstate
 deploy/azure/*.tfstate.backup
 deploy/azure/.terraform/
 deploy/azure/.terraform.lock.hcl
+deploy/aws/terraform.tfvars
+deploy/aws/*.tfstate
+deploy/aws/*.tfstate.backup
+deploy/aws/.terraform/
+deploy/aws/.terraform.lock.hcl
 
 # =============================================================================
 # Miscellaneous
