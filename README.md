@@ -209,6 +209,137 @@ The service unit applies the following restrictions to the gunicorn process:
 | `RestrictRealtime=true` | Cannot acquire real-time scheduling |
 | `RestrictSUIDSGID=true` | Cannot set-UID/set-GID bits |
 
+### Host hardening
+
+The steps below are strongly recommended after running the installer. None are automated by `install.sh` because they affect system-wide services (SSH, firewall) and incorrect configuration can lock you out of the server. Review each step before applying.
+
+#### UFW firewall
+
+SSL Manager's nginx instance binds to `127.0.0.1` only, so its port must **not** be opened in the firewall. Only SSH needs to be reachable from the network.
+
+```bash
+# Install ufw if not already present
+sudo apt-get install -y ufw
+
+# Set default policies
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Allow SSH — change 22 to your actual SSH port if non-standard
+sudo ufw allow 22/tcp comment 'SSH'
+
+# Rate-limit SSH to slow brute-force attempts (max 6 connections per 30 s per IP)
+sudo ufw limit 22/tcp
+
+# Enable the firewall (confirm with 'y' when prompted)
+sudo ufw enable
+
+# Verify — nginx port (e.g. 5001) must NOT appear here
+sudo ufw status verbose
+```
+
+> **Note:** If you use a non-standard SSH port, replace `22` above with your port before enabling UFW to avoid locking yourself out.
+
+#### fail2ban — SSH brute-force protection
+
+```bash
+sudo apt-get install -y fail2ban
+
+# Create a local override (never edit the packaged jail.conf directly)
+sudo tee /etc/fail2ban/jail.d/ssh-local.conf > /dev/null <<'EOF'
+[sshd]
+enabled  = true
+port     = ssh
+maxretry = 5
+findtime = 10m
+bantime  = 1h
+EOF
+
+sudo systemctl enable --now fail2ban
+sudo fail2ban-client status sshd   # confirm the jail is active
+```
+
+Increase `bantime` (e.g. `24h` or `-1` for permanent) for a more restrictive posture.
+
+#### SSH daemon hardening
+
+Edit `/etc/ssh/sshd_config` (or drop a file in `/etc/ssh/sshd_config.d/`) and set:
+
+```
+# Disable password authentication — key-based auth only
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+
+# Prevent direct root login over SSH
+PermitRootLogin no
+
+# Only allow specific users to log in (replace 'youruser' with your actual username)
+AllowUsers youruser
+
+# Disable unused authentication methods
+UsePAM yes
+X11Forwarding no
+```
+
+Reload after editing:
+
+```bash
+# Test configuration before reloading — fix any errors reported here first
+sudo sshd -t
+sudo systemctl reload ssh
+```
+
+> **Important:** Open a second SSH session to verify access before closing your current one.
+
+#### Automatic security updates
+
+```bash
+sudo apt-get install -y unattended-upgrades
+
+# Enable and configure
+sudo dpkg-reconfigure -plow unattended-upgrades
+
+# Optionally configure automatic reboots for kernel updates
+# Edit /etc/apt/apt.conf.d/50unattended-upgrades and set:
+#   Unattended-Upgrade::Automatic-Reboot "true";
+#   Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+```
+
+#### Kernel and sysctl hardening
+
+Add to `/etc/sysctl.d/99-hardening.conf`:
+
+```
+# Ignore ICMP redirects (prevent routing table poisoning)
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+
+# Do not send ICMP redirects
+net.ipv4.conf.all.send_redirects = 0
+
+# Ignore broadcast pings
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+
+# Enable SYN flood protection
+net.ipv4.tcp_syncookies = 1
+
+# Disable IP source routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+
+# Restrict dmesg to root
+kernel.dmesg_restrict = 1
+
+# Prevent core dumps from exposing memory
+fs.suid_dumpable = 0
+```
+
+Apply immediately:
+
+```bash
+sudo sysctl --system
+```
+
 ### Upgrade
 
 Pull new code and re-run with `--upgrade`. Application files and Python dependencies are updated; the database and config are left untouched.
