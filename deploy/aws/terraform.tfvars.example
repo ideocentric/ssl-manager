@@ -34,6 +34,12 @@ allowed_ssh_ips = [
 # Root EBS volume size in GB (30 GB is sufficient for <1000 certificates + 7-day backups)
 root_volume_size_gb = 30
 
+# System timezone — must be a valid tz database name.
+# Controls log timestamps, backup filenames, and the 02:00 backup timer fire time.
+# Run 'timedatectl list-timezones' for valid values.
+# Examples: "America/New_York"  "America/Chicago"  "America/Los_Angeles"  "Europe/London"
+timezone = "UTC"
+
 # Tags applied to all resources
 tags = {
   Project     = "ssl-manager"

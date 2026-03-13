@@ -5,8 +5,16 @@ services:
       - "5001:5001"
     volumes:
       - ssl-manager-db:/app/instance
+      # Mount the host timezone file so the container clock matches the host.
+      # Works on Linux and macOS. Windows users: remove this line and rely on
+      # the TZ variable below (Docker Desktop syncs the clock but not localtime).
+      - /etc/localtime:/etc/localtime:ro
     environment:
       - SECRET_KEY=change-me-in-production
+      # TZ is read from the host shell environment or a .env file in this directory.
+      # If not set on the host, the container falls back to UTC.
+      # Set it in .env:  echo "TZ=America/New_York" > .env
+      - TZ=${TZ:-UTC}
     restart: unless-stopped
 
 volumes:

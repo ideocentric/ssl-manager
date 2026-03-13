@@ -137,6 +137,17 @@ resource "azurerm_linux_virtual_machine" "main" {
   # SSH key authentication only — password login disabled
   disable_password_authentication = true
 
+  # Set the system timezone on first boot via cloud-init.
+  # This ensures backup filenames, log timestamps, and the systemd timer all
+  # use the same local time. Changing this value after provisioning requires
+  # running 'sudo timedatectl set-timezone <tz>' on the VM manually,
+  # as custom_data only executes on the first boot.
+  custom_data = base64encode(<<-EOF
+    #cloud-config
+    timezone: ${var.timezone}
+  EOF
+  )
+
   admin_ssh_key {
     username   = var.admin_username
     public_key = var.admin_ssh_public_key

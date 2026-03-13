@@ -57,6 +57,18 @@ variable "os_disk_size_gb" {
   default     = 30
 }
 
+variable "timezone" {
+  description = <<-EOT
+    System timezone for the server. Controls log timestamps, backup filenames,
+    and the systemd timer fire time. Must be a valid tz database name.
+    Run 'timedatectl list-timezones' on any Ubuntu system for the full list.
+    Examples: "America/New_York", "America/Chicago", "America/Denver",
+              "America/Los_Angeles", "Europe/London", "Asia/Tokyo", "UTC"
+  EOT
+  type    = string
+  default = "UTC"
+}
+
 variable "tags" {
   description = "Tags applied to every resource in the deployment."
   type        = map(string)

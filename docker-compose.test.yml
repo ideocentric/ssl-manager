@@ -39,6 +39,10 @@ services:
       - ssl-manager-db:/app/instance
       # Persist backup archives between restarts
       - ssl-manager-backups:/var/backups/ssl-manager
+      # Inherit host timezone (Linux/macOS)
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=${TZ:-UTC}
     depends_on:
       - ssl-manager
     restart: unless-stopped

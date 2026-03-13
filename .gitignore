@@ -102,6 +102,7 @@ htmlcov/
 # Never commit credentials or local env overrides
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 

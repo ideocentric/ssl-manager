@@ -76,7 +76,7 @@ _write_audit() {
     detail="${detail//\'/''}"
     sqlite3 "${DB_FILE}" \
         "INSERT INTO audit_log (timestamp, username, ip_address, action, resource_type, result, detail)
-         VALUES (datetime('now'), 'system', NULL, 'backup', 'database', '${result}', '${detail}');" \
+         VALUES (datetime('now', 'localtime'), 'system', NULL, 'backup', 'database', '${result}', '${detail}');" \
         2>/dev/null || warn "Could not write audit log entry to ${DB_FILE}."
 }
 

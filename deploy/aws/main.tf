@@ -163,6 +163,17 @@ resource "aws_instance" "main" {
   # Do not assign a public IP automatically — traffic routes through the EIP
   associate_public_ip_address = false
 
+  # Set the system timezone on first boot via cloud-init.
+  # This ensures backup filenames, log timestamps, and the systemd timer all
+  # use the same local time. Changing this value after provisioning requires
+  # running 'sudo timedatectl set-timezone <tz>' on the instance manually,
+  # as user_data only executes on the first boot.
+  user_data = base64encode(<<-EOF
+    #cloud-config
+    timezone: ${var.timezone}
+  EOF
+  )
+
   root_block_device {
     volume_type = "gp3"
     volume_size = var.root_volume_size_gb

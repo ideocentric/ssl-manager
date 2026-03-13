@@ -167,7 +167,7 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.String(256), nullable=False)
     role          = db.Column(db.String(16), default="user", nullable=False)  # superadmin | user
     active        = db.Column(db.Boolean, default=True, nullable=False)
-    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at    = db.Column(db.DateTime, default=datetime.now)
 
     # Flask-Login requires is_active; route it to our column
     @property
@@ -252,7 +252,7 @@ class CertChain(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(256), nullable=False)
     description = db.Column(db.String(512), default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     intermediates = db.relationship(
         "IntermediateCert", backref="chain", lazy=True,
         cascade="all, delete-orphan",
@@ -270,7 +270,7 @@ class IntermediateCert(db.Model):
     pem_data = db.Column(db.Text, nullable=False)
     order = db.Column(db.Integer, default=0)
     chain_id = db.Column(db.Integer, db.ForeignKey("cert_chain.id"), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
 
     @property
     def parsed_cert(self):
@@ -331,7 +331,7 @@ class Certificate(db.Model):
     signed_cert_pem = db.Column(db.Text)
     status = db.Column(db.String(32), default="pending_signing")
     expiry_date = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     country = db.Column(db.String(2), default="US")
     state = db.Column(db.String(128), default="")
     city = db.Column(db.String(128), default="")
@@ -390,7 +390,7 @@ class AuditLog(db.Model):
     __tablename__ = "audit_log"
 
     id            = db.Column(db.Integer, primary_key=True)
-    timestamp     = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    timestamp     = db.Column(db.DateTime, default=datetime.now, index=True)
     username      = db.Column(db.String(64))
     user_id       = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
     ip_address    = db.Column(db.String(45))

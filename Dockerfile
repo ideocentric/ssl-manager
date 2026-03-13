@@ -1,7 +1,13 @@
 FROM python:3.13-slim
 
 # Install openssl for P7B generation
-RUN apt-get update && apt-get install -y --no-install-recommends openssl gcc python3-dev sqlite3 && rm -rf /var/lib/apt/lists/*
+# tzdata is required for the TZ environment variable to work correctly in Python
+# and SQLite. DEBIAN_FRONTEND suppresses the interactive timezone prompt.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openssl gcc python3-dev sqlite3 tzdata \
+    && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=
 
 WORKDIR /app
 
