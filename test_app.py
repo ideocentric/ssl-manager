@@ -898,51 +898,121 @@ class TestCertificateRenew:
 
 
 class TestSettingsRoute:
-    def test_get_returns_200(self, client):
-        resp = client.get("/settings")
+    def test_settings_redirects_to_profiles(self, client):
+        # /settings is now a redirect alias for /profiles
+        resp = client.get("/settings", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/profiles" in resp.headers["Location"]
+
+
+class TestProfilesRoute:
+    def test_profiles_list_returns_200(self, client):
+        resp = client.get("/profiles")
         assert resp.status_code == 200
 
-    def test_post_saves_settings(self, client):
-        # POST then GET to verify the saved values are shown in the form
-        client.post("/settings", data={
+    def test_profile_new_get_returns_200(self, client):
+        resp = client.get("/profiles/new")
+        assert resp.status_code == 200
+
+    def test_profile_create_and_list(self, client):
+        resp = client.post("/profiles/new", data={
+            "name": "Test Corp",
             "key_size": "4096",
             "country": "GB",
             "state": "England",
             "city": "London",
-            "org_name": "ACME Ltd",
+            "org_name": "Test Corp",
             "org_unit": "Security",
-            "email": "ssl@acme.com",
-        })
-        resp = client.get("/settings")
-        assert b"ACME Ltd" in resp.data
-        assert b"England" in resp.data
-        assert b"ssl@acme.com" in resp.data
+            "email": "ssl@test.com",
+        }, follow_redirects=True)
+        assert b"Test Corp" in resp.data
 
-    def test_post_redirects_back(self, client):
-        resp = client.post("/settings", data={
+    def test_profile_create_redirects_to_list(self, client):
+        resp = client.post("/profiles/new", data={
+            "name": "Redir Test",
             "key_size": "2048", "country": "US", "state": "",
             "city": "", "org_name": "", "org_unit": "", "email": "",
         }, follow_redirects=False)
         assert resp.status_code == 302
-        assert "/settings" in resp.headers["Location"]
+        assert "/profiles" in resp.headers["Location"]
 
-    def test_invalid_key_size_defaults_to_2048(self, client):
-        client.post("/settings", data={
+    def test_profile_create_requires_name(self, client):
+        resp = client.post("/profiles/new", data={
+            "name": "",
+            "key_size": "2048", "country": "US", "state": "",
+            "city": "", "org_name": "", "org_unit": "", "email": "",
+        })
+        assert resp.status_code == 200
+        assert b"required" in resp.data.lower()
+
+    def test_profile_duplicate_name_rejected(self, client, flask_app):
+        with flask_app.app_context():
+            from app import Settings, db
+            existing = Settings.query.first()
+            name = existing.name
+        resp = client.post("/profiles/new", data={
+            "name": name,
+            "key_size": "2048", "country": "US", "state": "",
+            "city": "", "org_name": "", "org_unit": "", "email": "",
+        })
+        assert resp.status_code == 200
+        assert b"already exists" in resp.data
+
+    def test_profile_edit_saves_values(self, client, flask_app):
+        with flask_app.app_context():
+            from app import Settings, db
+            profile = Settings.query.first()
+            pid = profile.id
+        client.post(f"/profiles/{pid}/edit", data={
+            "name": "Updated Name",
+            "key_size": "4096",
+            "country": "DE",
+            "state": "Bavaria",
+            "city": "Munich",
+            "org_name": "GmbH Corp",
+            "org_unit": "IT",
+            "email": "it@gmbh.de",
+        })
+        resp = client.get("/profiles")
+        assert b"GmbH Corp" in resp.data
+
+    def test_cannot_delete_last_profile(self, client, flask_app):
+        with flask_app.app_context():
+            from app import Settings, db
+            assert Settings.query.count() == 1
+            pid = Settings.query.first().id
+        resp = client.post(f"/profiles/{pid}/delete", follow_redirects=True)
+        assert b"Cannot delete the last profile" in resp.data
+
+    def test_set_default_promotes_profile(self, client, flask_app):
+        # Create a second profile, then promote it to default
+        client.post("/profiles/new", data={
+            "name": "Secondary",
+            "key_size": "2048", "country": "CA", "state": "",
+            "city": "", "org_name": "", "org_unit": "", "email": "",
+        })
+        with flask_app.app_context():
+            from app import Settings, db
+            second = Settings.query.filter_by(name="Secondary").first()
+            sid = second.id
+        resp = client.post(f"/profiles/{sid}/set-default", follow_redirects=True)
+        assert resp.status_code == 200
+        with flask_app.app_context():
+            from app import Settings, db
+            assert Settings.query.filter_by(name="Secondary", is_default=True).count() == 1
+            assert Settings.query.filter_by(is_default=True).count() == 1
+
+    def test_invalid_key_size_defaults_to_2048(self, client, flask_app):
+        with flask_app.app_context():
+            from app import Settings, db
+            pid = Settings.query.first().id
+        client.post(f"/profiles/{pid}/edit", data={
+            "name": "Default",
             "key_size": "not_a_number", "country": "US", "state": "",
             "city": "", "org_name": "", "org_unit": "", "email": "",
         })
-        # The new cert form should still show a valid key size option selected
         resp = client.get("/certificates/new")
         assert resp.status_code == 200
-
-    def test_country_truncated_to_2_chars(self, client):
-        client.post("/settings", data={
-            "key_size": "2048", "country": "USA", "state": "",
-            "city": "", "org_name": "", "org_unit": "", "email": "",
-        })
-        resp = client.get("/settings")
-        # "US" should appear in the response (truncated from "USA")
-        assert b"US" in resp.data
 
 
 class TestChainsRoute:

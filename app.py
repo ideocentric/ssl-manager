@@ -185,18 +185,25 @@ def _superadmin_count() -> int:
 
 
 class Settings(db.Model):
-    """Global default settings used when generating new certificates."""
+    """Named profile of certificate-subject defaults used when generating new CSRs.
+
+    Multiple profiles can exist; exactly one is marked as the default.  When
+    only one profile exists it is used automatically without requiring the user
+    to choose.
+    """
 
     __tablename__ = "settings"
 
-    id = db.Column(db.Integer, primary_key=True)
-    key_size = db.Column(db.Integer, default=2048)
-    country = db.Column(db.String(2), default="US")
-    state = db.Column(db.String(128), default="")
-    city = db.Column(db.String(128), default="")
-    org_name = db.Column(db.String(256), default="")
-    org_unit = db.Column(db.String(256), default="")
-    email = db.Column(db.String(256), default="")
+    id         = db.Column(db.Integer, primary_key=True)
+    name       = db.Column(db.String(128), nullable=False, default="Default")
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
+    key_size   = db.Column(db.Integer, default=2048)
+    country    = db.Column(db.String(2), default="US")
+    state      = db.Column(db.String(128), default="")
+    city       = db.Column(db.String(128), default="")
+    org_name   = db.Column(db.String(256), default="")
+    org_unit   = db.Column(db.String(256), default="")
+    email      = db.Column(db.String(256), default="")
 
 
 class CertChain(db.Model):
@@ -357,18 +364,40 @@ class AuditLog(db.Model):
 # Crypto helpers
 # ---------------------------------------------------------------------------
 
-def get_settings():
-    """Return the singleton Settings row, creating it with defaults if absent.
+def get_default_profile():
+    """Return the active default Settings profile, creating one if none exist.
+
+    Resolution order:
+      1. The profile with ``is_default=True``.
+      2. The only existing profile (when exactly one exists).
+      3. A newly-created "Default" profile (first run).
 
     Returns:
-        The Settings ORM instance.
+        The Settings ORM instance to use as the current default.
     """
-    settings = Settings.query.first()
-    if settings is None:
-        settings = Settings()
-        db.session.add(settings)
+    default = Settings.query.filter_by(is_default=True).first()
+    if default:
+        return default
+    profiles = Settings.query.all()
+    if len(profiles) == 1:
+        # Auto-promote the sole profile so future queries are fast.
+        profiles[0].is_default = True
         db.session.commit()
-    return settings
+        return profiles[0]
+    if not profiles:
+        profile = Settings(name="Default", is_default=True, key_size=2048)
+        db.session.add(profile)
+        db.session.commit()
+        return profile
+    # Multiple profiles, none marked default — promote the first one.
+    profiles[0].is_default = True
+    db.session.commit()
+    return profiles[0]
+
+
+# Keep the old name as an alias so any call sites missed by this refactor
+# still work correctly.
+get_settings = get_default_profile
 
 
 def generate_key_and_csr(domain, san_list, key_size, country, state, city, org_name, org_unit, email):
@@ -1034,17 +1063,25 @@ def certificates():
 @login_required
 def certificate_new():
     """GET/POST /certificates/new — Display and process the new-certificate form, generating a key and CSR."""
-    settings = get_settings()
+    all_profiles = Settings.query.order_by(Settings.name.asc()).all()
+    default_profile = get_default_profile()
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
     if request.method == "POST":
+        # Resolve which profile was chosen (falls back to default).
+        try:
+            chosen_profile_id = int(request.form.get("profile_id", ""))
+            chosen_profile = Settings.query.get(chosen_profile_id) or default_profile
+        except (ValueError, TypeError):
+            chosen_profile = default_profile
+
         domain = _clean(request.form.get("domain", ""), 253)
         san_raw = request.form.get("san_domains", "")
-        country = _clean(request.form.get("country", settings.country or ""), 2).upper()
-        state    = _clean(request.form.get("state",    settings.state    or ""), 128)
-        city     = _clean(request.form.get("city",     settings.city     or ""), 128)
-        org_name = _clean(request.form.get("org_name", settings.org_name or ""), 256)
-        org_unit = _clean(request.form.get("org_unit", settings.org_unit or ""), 256)
-        email    = _clean(request.form.get("email",    settings.email    or ""), 256)
+        country = _clean(request.form.get("country", chosen_profile.country or ""), 2).upper()
+        state    = _clean(request.form.get("state",    chosen_profile.state    or ""), 128)
+        city     = _clean(request.form.get("city",     chosen_profile.city     or ""), 128)
+        org_name = _clean(request.form.get("org_name", chosen_profile.org_name or ""), 256)
+        org_unit = _clean(request.form.get("org_unit", chosen_profile.org_unit or ""), 256)
+        email    = _clean(request.form.get("email",    chosen_profile.email    or ""), 256)
 
         san_list, san_err = _validate_san_list(san_raw)
         error = (
@@ -1055,10 +1092,11 @@ def certificate_new():
         )
         if error:
             flash(error, "error")
-            return render_template("cert_new.html", settings=settings, chains=chains)
+            return render_template("cert_new.html", profiles=all_profiles,
+                                   default_profile=default_profile, chains=chains)
 
         try:
-            key_size = int(request.form.get("key_size", settings.key_size))
+            key_size = int(request.form.get("key_size", chosen_profile.key_size))
         except (ValueError, TypeError):
             key_size = 2048
         if key_size not in (2048, 4096):
@@ -1076,7 +1114,8 @@ def certificate_new():
             )
         except Exception as e:
             flash(f"Error generating key/CSR: {e}", "error")
-            return render_template("cert_new.html", settings=settings, chains=chains)
+            return render_template("cert_new.html", profiles=all_profiles,
+                                   default_profile=default_profile, chains=chains)
 
         cert = Certificate(
             domain=domain,
@@ -1099,7 +1138,8 @@ def certificate_new():
         flash(f"RSA key and CSR generated for {domain}.", "success")
         return redirect(url_for("certificate_detail", cert_id=cert.id))
 
-    return render_template("cert_new.html", settings=settings, chains=chains)
+    return render_template("cert_new.html", profiles=all_profiles,
+                           default_profile=default_profile, chains=chains)
 
 
 @app.route("/certificates/<int:cert_id>/renew")
@@ -1107,9 +1147,11 @@ def certificate_new():
 def certificate_renew(cert_id):
     """GET /certificates/<cert_id>/renew — Show the new-certificate form pre-populated for renewal."""
     cert = Certificate.query.get_or_404(cert_id)
-    settings = get_settings()
+    all_profiles = Settings.query.order_by(Settings.name.asc()).all()
+    default_profile = get_default_profile()
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
-    return render_template("cert_new.html", settings=settings, renew_from=cert, chains=chains)
+    return render_template("cert_new.html", profiles=all_profiles,
+                           default_profile=default_profile, renew_from=cert, chains=chains)
 
 
 @app.route("/certificates/<int:cert_id>")
@@ -1374,36 +1416,136 @@ def download_der(cert_id):
     )
 
 
-# ---- Settings ----
+# ---- Settings / Profiles ----
 
-@app.route("/settings", methods=["GET", "POST"])
+@app.route("/settings")
 @login_required
 def settings():
-    """GET/POST /settings — Display and save global certificate-generation defaults."""
-    s = get_settings()
+    """GET /settings — Redirect to the profiles list (backwards-compat URL)."""
+    return redirect(url_for("profiles"))
+
+
+@app.route("/profiles")
+@login_required
+def profiles():
+    """GET /profiles — List all certificate-subject profiles."""
+    all_profiles = Settings.query.order_by(Settings.name.asc()).all()
+    return render_template("profiles.html", profiles=all_profiles)
+
+
+def _save_profile_from_form(profile):
+    """Validate and apply POST form data to a Settings profile object.
+
+    Args:
+        profile: The Settings ORM instance to update in-place.
+
+    Returns:
+        An error string if validation fails, or ``None`` on success.
+    """
+    name    = _clean(request.form.get("name", ""), 128)
+    country = _clean(request.form.get("country", ""), 2).upper()
+    email   = _clean(request.form.get("email", ""), 256)
+
+    if not name:
+        return "Profile name is required."
+
+    # Name must be unique (excluding the current profile when editing)
+    existing = Settings.query.filter(Settings.name == name, Settings.id != profile.id).first()
+    if existing:
+        return f"A profile named \"{name}\" already exists."
+
+    error = _validate_country(country) or _validate_email(email)
+    if error:
+        return error
+
+    try:
+        key_size = int(request.form.get("key_size", 2048))
+    except (ValueError, TypeError):
+        key_size = 2048
+
+    profile.name     = name
+    profile.key_size = key_size if key_size in (2048, 4096) else 2048
+    profile.country  = country
+    profile.state    = _clean(request.form.get("state",    ""), 128)
+    profile.city     = _clean(request.form.get("city",     ""), 128)
+    profile.org_name = _clean(request.form.get("org_name", ""), 256)
+    profile.org_unit = _clean(request.form.get("org_unit", ""), 256)
+    profile.email    = email
+    return None
+
+
+@app.route("/profiles/new", methods=["GET", "POST"])
+@login_required
+def profile_new():
+    """GET/POST /profiles/new — Create a new certificate-subject profile."""
+    profile = Settings(name="", key_size=2048)
     if request.method == "POST":
-        country = _clean(request.form.get("country", ""), 2).upper()
-        email   = _clean(request.form.get("email", ""), 256)
-        error = _validate_country(country) or _validate_email(email)
-        if error:
-            flash(error, "error")
-            return render_template("settings.html", settings=s)
-        try:
-            key_size = int(request.form.get("key_size", 2048))
-        except (ValueError, TypeError):
-            key_size = 2048
-        s.key_size = key_size if key_size in (2048, 4096) else 2048
-        s.country  = country
-        s.state    = _clean(request.form.get("state",    ""), 128)
-        s.city     = _clean(request.form.get("city",     ""), 128)
-        s.org_name = _clean(request.form.get("org_name", ""), 256)
-        s.org_unit = _clean(request.form.get("org_unit", ""), 256)
-        s.email    = email
+        err = _save_profile_from_form(profile)
+        if err:
+            flash(err, "error")
+            return render_template("profile_form.html", profile=profile, action="new")
+        # First profile automatically becomes the default
+        if Settings.query.count() == 0:
+            profile.is_default = True
+        db.session.add(profile)
         db.session.commit()
-        _audit("settings_updated", "settings", None, "success")
-        flash("Settings saved.", "success")
-        return redirect(url_for("settings"))
-    return render_template("settings.html", settings=s)
+        _audit("profile_created", "settings", profile.id, "success", f"name={profile.name!r}")
+        flash(f"Profile \"{profile.name}\" created.", "success")
+        return redirect(url_for("profiles"))
+    return render_template("profile_form.html", profile=profile, action="new")
+
+
+@app.route("/profiles/<int:profile_id>/edit", methods=["GET", "POST"])
+@login_required
+def profile_edit(profile_id):
+    """GET/POST /profiles/<profile_id>/edit — Edit an existing certificate-subject profile."""
+    profile = Settings.query.get_or_404(profile_id)
+    if request.method == "POST":
+        err = _save_profile_from_form(profile)
+        if err:
+            flash(err, "error")
+            return render_template("profile_form.html", profile=profile, action="edit")
+        db.session.commit()
+        _audit("profile_updated", "settings", profile.id, "success", f"name={profile.name!r}")
+        flash(f"Profile \"{profile.name}\" saved.", "success")
+        return redirect(url_for("profiles"))
+    return render_template("profile_form.html", profile=profile, action="edit")
+
+
+@app.route("/profiles/<int:profile_id>/delete", methods=["POST"])
+@login_required
+def profile_delete(profile_id):
+    """POST /profiles/<profile_id>/delete — Delete a profile; blocked when only one remains."""
+    profile = Settings.query.get_or_404(profile_id)
+    if Settings.query.count() <= 1:
+        flash("Cannot delete the last profile.", "error")
+        return redirect(url_for("profiles"))
+    name = profile.name
+    was_default = profile.is_default
+    db.session.delete(profile)
+    db.session.flush()
+    if was_default:
+        # Promote the first remaining profile
+        new_default = Settings.query.order_by(Settings.name.asc()).first()
+        if new_default:
+            new_default.is_default = True
+    db.session.commit()
+    _audit("profile_deleted", "settings", profile_id, "success", f"name={name!r}")
+    flash(f"Profile \"{name}\" deleted.", "success")
+    return redirect(url_for("profiles"))
+
+
+@app.route("/profiles/<int:profile_id>/set-default", methods=["POST"])
+@login_required
+def profile_set_default(profile_id):
+    """POST /profiles/<profile_id>/set-default — Promote a profile to the default."""
+    profile = Settings.query.get_or_404(profile_id)
+    Settings.query.filter_by(is_default=True).update({"is_default": False})
+    profile.is_default = True
+    db.session.commit()
+    _audit("profile_set_default", "settings", profile.id, "success", f"name={profile.name!r}")
+    flash(f"Profile \"{profile.name}\" is now the default.", "success")
+    return redirect(url_for("profiles"))
 
 
 # ---- Certificate Chains ----
@@ -1722,6 +1864,8 @@ def forbidden(e):
 _ALLOWED_MIGRATIONS = {
     ("intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)"),
     ("certificate",       "chain_id INTEGER REFERENCES cert_chain(id)"),
+    ("settings",          "name TEXT NOT NULL DEFAULT 'Default'"),
+    ("settings",          "is_default INTEGER NOT NULL DEFAULT 0"),
 }
 
 
@@ -1747,9 +1891,18 @@ with app.app_context():
     # Ensure new columns exist on databases created before this schema version
     _add_column_if_missing(db.engine, "intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)")
     _add_column_if_missing(db.engine, "certificate", "chain_id INTEGER REFERENCES cert_chain(id)")
+    _add_column_if_missing(db.engine, "settings", "name TEXT NOT NULL DEFAULT 'Default'")
+    _add_column_if_missing(db.engine, "settings", "is_default INTEGER NOT NULL DEFAULT 0")
+    # Seed initial profile or migrate legacy singleton
     if Settings.query.first() is None:
-        db.session.add(Settings(key_size=2048))
+        db.session.add(Settings(name="Default", is_default=True, key_size=2048))
         db.session.commit()
+    else:
+        # Ensure exactly one profile is marked as the default
+        if not Settings.query.filter_by(is_default=True).first():
+            first = Settings.query.order_by(Settings.id.asc()).first()
+            first.is_default = True
+            db.session.commit()
     # Migrate intermediates that pre-date named chains into a "Default Chain"
     try:
         orphans = IntermediateCert.query.filter_by(chain_id=None).all()
