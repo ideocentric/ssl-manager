@@ -662,6 +662,31 @@ def _get_csrf_token():
 app.jinja_env.globals["csrf_token"] = _get_csrf_token
 
 
+def _static_url(filename):
+    """Return a cache-busting URL for a static file using its mtime as a version.
+
+    Appends ``?v=<mtime>`` so browsers fetch a fresh copy whenever the file
+    changes on disk, without requiring users to clear their cache.
+
+    Args:
+        filename: Path relative to the static folder (e.g. ``'favicon.ico'``).
+
+    Returns:
+        A URL string with a ``v`` query parameter derived from the file's
+        modification time, or ``0`` if the file cannot be found.
+    """
+    import os
+    path = os.path.join(app.static_folder, filename)
+    try:
+        v = str(int(os.path.getmtime(path)))
+    except OSError:
+        v = "0"
+    return url_for("static", filename=filename, v=v)
+
+
+app.jinja_env.globals["static_url"] = _static_url
+
+
 # ---------------------------------------------------------------------------
 # Input validation helpers
 # ---------------------------------------------------------------------------
