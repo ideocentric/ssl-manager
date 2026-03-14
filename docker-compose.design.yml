@@ -1,0 +1,45 @@
+# docker-compose.design.yml — Design seed data overlay
+#
+# Adds a one-shot seeder service that populates the database with example data
+# covering every certificate state, CA expiry badge state, and audit log action
+# type — giving designers a fully-populated UI to work against.
+#
+# Credentials seeded:
+#   designer / design123  (superadmin)
+#   alice    / design123  (user)
+#   bob      / design123  (inactive)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.design.yml up --build
+#
+# The seeder waits 15 seconds for the app to initialise the database, then runs
+# once and exits.  Re-seed at any time while the stack is running:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.design.yml \
+#     run --rm seed-design
+
+services:
+  seed-design:
+    build: .
+    command:
+      - bash
+      - -c
+      - |
+        echo '[seed-design] Waiting 15 s for ssl-manager to initialise the database...'
+        sleep 15
+        echo '[seed-design] Running seed_design.py...'
+        python /app/seed_design.py --force
+        echo '[seed-design] Done.'
+    volumes:
+      # Share the same DB volume as the main app
+      - ssl-manager-db:/app/instance
+      # Inherit host timezone (Linux/macOS)
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=${TZ:-UTC}
+    depends_on:
+      - ssl-manager
+    restart: "no"
+
+volumes:
+  ssl-manager-db:
