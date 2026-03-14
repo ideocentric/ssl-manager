@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-building-lock me-2"></i>{{ ca.name }}</h2>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('cas.ca_download_cert', ca_id=ca.id) }}" class="btn btn-success">
+      <i class="bi bi-download me-1"></i>Download CA Cert
+    </a>
+    <a href="{{ url_for('cas.cas') }}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+  </div>
+</div>
+
+<!-- CA Info -->
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-primary text-white">
+    <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>CA Information</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <dl class="mb-0">
+          <dt class="text-muted small">Common Name</dt>
+          <dd class="fw-semibold">{{ ca.common_name }}</dd>
+          <dt class="text-muted small">Key Size</dt>
+          <dd>RSA-{{ ca.key_size }}</dd>
+          <dt class="text-muted small">Created</dt>
+          <dd>{{ ca.created_at.strftime('%Y-%m-%d %H:%M UTC') if ca.created_at else 'N/A' }}</dd>
+        </dl>
+      </div>
+      <div class="col-md-6">
+        <dl class="mb-0">
+          <dt class="text-muted small">Expiry Date</dt>
+          <dd>
+            {% if ca.expiry_date %}
+            {{ ca.expiry_date.strftime('%Y-%m-%d') }}
+            {% set days = ca.days_until_expiry %}
+            {% if days is not none %}
+              {% if days < 0 %}
+              <span class="badge bg-danger ms-1">Expired</span>
+              {% elif days <= 30 %}
+              <span class="badge bg-warning text-dark ms-1">{{ days }}d remaining</span>
+              {% elif days <= 90 %}
+              <span class="badge bg-info text-dark ms-1">{{ days }}d remaining</span>
+              {% else %}
+              <span class="badge bg-success ms-1">{{ days }}d remaining</span>
+              {% endif %}
+            {% endif %}
+            {% else %}
+            N/A
+            {% endif %}
+          </dd>
+          <dt class="text-muted small">Description</dt>
+          <dd>{{ ca.description or '—' }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CA Certificate PEM -->
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-secondary text-white">
+    <h6 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Public Certificate (PEM)</h6>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-2">Install this certificate in the trust stores of clients and servers that need to trust certificates signed by this CA.</p>
+    <pre class="pem-block">{{ ca.cert_pem }}</pre>
+    <a href="{{ url_for('cas.ca_download_cert', ca_id=ca.id) }}" class="btn btn-outline-success btn-sm mt-2">
+      <i class="bi bi-download me-1"></i>Download .pem
+    </a>
+  </div>
+</div>
+
+<!-- Pending Certificates -->
+{% if pending_certs %}
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-warning text-dark">
+    <h6 class="mb-0"><i class="bi bi-pen me-2"></i>Sign Pending Certificates</h6>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Select a certificate below and submit to sign it with this CA.
+      The certificate will be marked active immediately.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Key Size</th>
+            <th>Created</th>
+            <th>Validity (days)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cert in pending_certs %}
+          <tr>
+            <td class="fw-semibold">{{ cert.domain }}</td>
+            <td>RSA-{{ cert.key_size }}</td>
+            <td>{{ cert.created_at.strftime('%Y-%m-%d') if cert.created_at else '—' }}</td>
+            <td>
+              <form method="post" action="{{ url_for('cas.ca_sign_cert', ca_id=ca.id, cert_id=cert.id) }}"
+                    class="d-flex gap-2 align-items-center"
+                    onsubmit="return confirm('Sign certificate for {{ cert.domain }} with CA \'{{ ca.name }}\'?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="number" name="validity_days" value="365" min="1" max="3650"
+                       class="form-control form-control-sm" style="width:100px;" />
+                <button type="submit" class="btn btn-warning btn-sm text-dark">
+                  <i class="bi bi-pen me-1"></i>Sign
+                </button>
+              </form>
+            </td>
+            <td>
+              <a href="{{ url_for('certificates.certificate_detail', cert_id=cert.id) }}"
+                 class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-eye"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-warning text-dark">
+    <h6 class="mb-0"><i class="bi bi-pen me-2"></i>Sign Pending Certificates</h6>
+  </div>
+  <div class="card-body text-center py-4 text-muted">
+    <i class="bi bi-check2-circle display-5 mb-3 d-block text-success"></i>
+    No certificates are pending signing.
+  </div>
+</div>
+{% endif %}
+
+<!-- Danger Zone -->
+<div class="card shadow-sm section-card">
+  <div class="card-header bg-danger text-white">
+    <h6 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Danger Zone</h6>
+  </div>
+  <div class="card-body">
+    <div class="danger-zone">
+      <h6 class="text-danger">Delete this CA</h6>
+      <p class="text-muted small mb-3">
+        Permanently removes the CA private key and certificate from this system.
+        Certificates signed by this CA are <strong>not</strong> deleted but will no longer be re-signable here.
+        This action cannot be undone.
+      </p>
+      <form method="post" action="{{ url_for('cas.ca_delete', ca_id=ca.id) }}"
+            onsubmit="return confirm('Permanently delete CA \'{{ ca.name }}\'?\n\nThis cannot be undone.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger">
+          <i class="bi bi-trash me-1"></i>Delete CA
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

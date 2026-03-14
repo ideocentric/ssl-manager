@@ -16,20 +16,28 @@ This document walks through the complete certificate lifecycle from first login 
 5. [Set Up Certificate Chains](#5-set-up-certificate-chains)
    - [Testing: Local Dev CA](#51-testing-with-the-local-dev-ca)
    - [Production: Real CA Intermediates](#52-production-real-ca-intermediates)
-6. [Browse and Search Certificates](#6-browse-and-search-certificates)
-7. [Create a New Certificate](#7-create-a-new-certificate)
-8. [Sign the CSR](#8-sign-the-csr)
-   - [Testing: Sign with dev_ca.py](#81-testing-sign-with-dev_capy)
-   - [Production: Submit to a Real CA](#82-production-submit-to-a-real-ca)
-9. [Upload the Signed Certificate](#9-upload-the-signed-certificate)
-10. [Export Formats](#10-export-formats)
-11. [Verification](#11-verification)
-    - [Component ZIP / PEM files](#111-component-zip--pem-files)
-    - [Full Chain PEM](#112-full-chain-pem)
-    - [PKCS#12 / PFX](#113-pkcs12--pfx)
-    - [JKS](#114-jks)
-    - [P7B](#115-p7b)
-12. [User Management](#12-user-management)
+6. [Internal Certificate Authorities](#6-internal-certificate-authorities)
+   - [Create a CA in the UI](#61-create-a-ca-in-the-ui)
+   - [Sign a Pending Certificate with an Internal CA](#62-sign-a-pending-certificate-with-an-internal-ca)
+   - [Verify a certificate signed by an internal CA](#63-verify-a-certificate-signed-by-an-internal-ca)
+7. [Importing External CSRs](#7-importing-external-csrs)
+   - [Generate a CSR with openssl](#71-generate-a-csr-with-openssl)
+   - [Import into SSL Manager and sign](#72-import-into-ssl-manager-and-sign)
+   - [Download the signed certificate PEM](#73-download-the-signed-certificate-pem)
+8. [Browse and Search Certificates](#8-browse-and-search-certificates)
+9. [Create a New Certificate](#9-create-a-new-certificate)
+10. [Sign the CSR](#10-sign-the-csr)
+    - [Testing: Sign with dev_ca.py](#101-testing-sign-with-dev_capy)
+    - [Production: Submit to a Real CA](#102-production-submit-to-a-real-ca)
+11. [Upload the Signed Certificate](#11-upload-the-signed-certificate)
+12. [Export Formats](#12-export-formats)
+13. [Verification](#13-verification)
+    - [Component ZIP / PEM files](#131-component-zip--pem-files)
+    - [Full Chain PEM](#132-full-chain-pem)
+    - [PKCS#12 / PFX](#133-pkcs12--pfx)
+    - [JKS](#134-jks)
+    - [P7B](#135-p7b)
+14. [User Management](#14-user-management)
 
 ---
 
@@ -188,6 +196,22 @@ pytest test_app.py -v --tb=short -k "TestCertificate"
 | `conftest.py` | Session-scoped `flask_app` fixture (factory pattern), `client`, `anon_client`, `clean_db` |
 | `test_app.py` | All test classes: crypto helpers, model properties, route integration tests |
 
+Key fixtures in `conftest.py`:
+
+| Fixture | Scope | Description |
+|---|---|---|
+| `flask_app` | session | Single in-memory SQLite app instance shared across the run |
+| `clean_db` | function (autouse) | Truncates and re-seeds database after every test; expunges the SQLAlchemy identity map |
+| `client` | function | Test client pre-authenticated as the test superadmin |
+| `anon_client` | function | Unauthenticated test client |
+
+Additional fixtures defined in `test_app.py` for CA tests:
+
+| Fixture | Scope | Description |
+|---|---|---|
+| `ca_record` | function | Creates a `CertificateAuthority` with a 1024-bit key (fast) and returns its `id` |
+| `pending_cert_record` | function | Creates a `Certificate` in `pending_signing` state with CSR but no signed cert |
+
 Tests that exercise the JKS download format require `pyjks` to be installed. If `pyjks` is absent those three tests will fail; all others pass independently.
 
 ---
@@ -339,7 +363,164 @@ When using a CA such as GoDaddy, DigiCert, or Sectigo:
 
 ---
 
-## 6. Browse and Search Certificates
+## 6. Internal Certificate Authorities
+
+The CA module lets you create self-signed root CAs within SSL Manager and use them to sign pending certificates directly — no external CA tooling required. This complements `dev_ca.py` (which provides a two-tier hierarchy for more realistic chain testing) with a simpler, UI-driven alternative for quick signing.
+
+### 6.1 Create a CA in the UI
+
+**Navigate:** Navbar → **CAs** → **New CA**
+
+Fill in the form — at minimum set a **CA Name** (used as the Common Name). The recommended defaults for development:
+
+| Field | Recommended dev value |
+|---|---|
+| Validity Period | 10 years (3650 days) |
+| Key Size | 2048 (faster to generate than 4096 in dev) |
+| Country | US |
+
+Click **Create CA**. The CA private key and certificate are generated and stored in the database.
+
+> **Performance note:** RSA-4096 key generation takes approximately 1–4 seconds on typical hardware. 2048-bit keys are instant and are fine for dev and test use.
+
+### 6.2 Sign a Pending Certificate with an Internal CA
+
+From the **CA Detail** page, the **Pending Certificates** table lists all certificates awaiting a signature. Set the **Validity (days)** field and click **Sign**.
+
+Alternatively, open any pending certificate's **Certificate Detail** page — a **Sign with Internal CA** card appears with a CA dropdown and validity input.
+
+After signing, the certificate status changes to **Active** and the expiry date is set. All standard download formats become available (for certificates that were created with **New Certificate** — see [Section 7](#7-importing-external-csrs) for CSR-import restrictions).
+
+### 6.3 Verify a certificate signed by an internal CA
+
+After signing, download the CA certificate and the signed certificate PEM, then verify the chain:
+
+```bash
+# Download the CA cert from CAs → <CA name> → Download Cert
+# Download the signed cert from Certificate Detail → Certificate PEM
+
+# Verify the signed cert was issued by this CA
+openssl verify -CAfile ca-cert.pem certificate.pem
+# Expected: certificate.pem: OK
+
+# Inspect the signed certificate
+openssl x509 -in certificate.pem -text -noout | grep -E "Issuer:|Subject:|Not After"
+
+# Confirm BasicConstraints marks the CA cert as a CA
+openssl x509 -in ca-cert.pem -text -noout | grep -A2 "Basic Constraints"
+# Expected: CA:TRUE
+```
+
+---
+
+## 7. Importing External CSRs
+
+Network appliances, identity platforms (Cisco ISE, F5, Palo Alto), and other systems often generate their private key internally and export only the CSR. SSL Manager's **Import CSR** feature handles this workflow: you import the CSR, sign it (with an internal CA or externally), and download only the signed certificate PEM to return to the device.
+
+### 7.1 Generate a CSR with openssl
+
+To simulate a device-generated CSR during development, use `openssl` directly on your workstation. The private key stays local (representing the key that lives inside the device); only the CSR is imported into SSL Manager.
+
+**Basic CSR (CN only):**
+
+```bash
+# Generate a 2048-bit key and CSR in one command
+openssl req -newkey rsa:2048 -nodes \
+  -keyout device.key \
+  -out device.csr \
+  -subj "/C=US/ST=California/L=San Francisco/O=Acme Corp/CN=ise.acme.internal"
+```
+
+**CSR with Subject Alternative Names:**
+
+```bash
+# Write an openssl config that includes SANs
+cat > san.cnf <<'EOF'
+[req]
+default_bits       = 2048
+prompt             = no
+distinguished_name = dn
+req_extensions     = req_ext
+
+[dn]
+C  = US
+ST = California
+L  = San Francisco
+O  = Acme Corp
+CN = ise.acme.internal
+
+[req_ext]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = ise.acme.internal
+DNS.2 = ise-psn1.acme.internal
+DNS.3 = ise-psn2.acme.internal
+EOF
+
+openssl req -newkey rsa:2048 -nodes \
+  -keyout device.key \
+  -out device.csr \
+  -config san.cnf
+```
+
+**Verify the CSR before importing:**
+
+```bash
+openssl req -in device.csr -text -noout
+# Check: Subject, Public Key, and (if present) Requested Extensions → Subject Alternative Name
+```
+
+**Sign the CSR with `dev_ca.py` (optional pre-check):**
+
+```bash
+# You can also sign this CSR with the local dev CA to verify the output format
+python dev_ca.py sign device.csr
+# Prints the signed PEM to stdout and saves it to dev-ca/signed/ise.acme.internal.crt
+```
+
+### 7.2 Import into SSL Manager and sign
+
+1. In SSL Manager, navigate to **Certificates** → **Import CSR**.
+2. Paste the contents of `device.csr` into the text area (or upload the file).
+3. Optionally assign a chain.
+4. Click **Import CSR**.
+
+A certificate record is created with status **Pending Signing**. No private key is stored.
+
+To sign it with an internal CA:
+
+- Open the new certificate's **Certificate Detail** page.
+- In the **Sign with Internal CA** card, select the CA and set a validity period.
+- Click **Sign Certificate**.
+
+Or sign it via an external CA: click **Download CSR** on the Certificate Detail page, submit the CSR to your CA, and upload the returned certificate.
+
+### 7.3 Download the signed certificate PEM
+
+Once signed, the only available download for a CSR-imported certificate (where no private key was stored) is the **Certificate PEM**:
+
+1. On the Certificate Detail page, click **Download Certificate PEM**.
+2. Install the PEM on the originating device according to that device's certificate import procedure.
+
+For Cisco ISE: Administration → System → Certificates → System Certificates → Import.
+
+**Verify the downloaded PEM:**
+
+```bash
+# Inspect the signed certificate
+openssl x509 -in ise.acme.internal.pem -text -noout
+
+# If signed by an internal CA, verify against the CA cert
+openssl verify -CAfile ca-cert.pem ise.acme.internal.pem
+
+# Confirm SANs were preserved from the original CSR
+openssl x509 -in ise.acme.internal.pem -text -noout | grep -A4 "Subject Alternative Name"
+```
+
+---
+
+## 8. Browse and Search Certificates
 
 **Navigate:** Navbar → **Certificates**
 
@@ -366,7 +547,7 @@ A counter on the right side of the search bar shows **N of M certificates**, ref
 
 ---
 
-## 7. Create a New Certificate
+## 9. Create a New Certificate
 
 **Navigate:** Navbar → **Certificates** → **New Certificate**
 
@@ -395,11 +576,11 @@ The app:
 
 ---
 
-## 8. Sign the CSR
+## 10. Sign the CSR
 
 On the **Certificate Detail** page, the CSR is displayed in the **Certificate Signing Request** section.
 
-### 8.1 Testing: Sign with dev_ca.py
+### 10.1 Testing: Sign with dev_ca.py
 
 ```bash
 # Download the CSR from the Certificate Detail page (Download CSR button)
@@ -414,7 +595,7 @@ The signed certificate PEM is printed to the terminal and saved to `dev-ca/signe
 python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 ```
 
-### 8.2 Production: Submit to a Real CA
+### 10.2 Production: Submit to a Real CA
 
 1. On the **Certificate Detail** page click **Download CSR** to save the `.csr` file.
 2. Log in to your CA's portal (GoDaddy, DigiCert, Sectigo, etc.).
@@ -426,7 +607,7 @@ python dev_ca.py sign ~/Downloads/www.example.com.csr --days 90
 
 ---
 
-## 9. Upload the Signed Certificate
+## 11. Upload the Signed Certificate
 
 **Navigate:** Certificate Detail page → **Upload Signed Certificate** section
 
@@ -452,7 +633,7 @@ The **Downloads** section is now unlocked.
 
 ---
 
-## 10. Export Formats
+## 12. Export Formats
 
 All download options appear in the **Downloads** section of the Certificate Detail page. The chain certificates loaded in Step 3 are automatically included in every bundled format.
 
@@ -554,11 +735,11 @@ Contains: signed certificate + all intermediates in PKCS#7 DER format. **Does no
 
 ---
 
-## 11. Verification
+## 13. Verification
 
 Use these commands to inspect and verify each format after downloading. Replace filenames with your actual domain.
 
-### 11.1 Component ZIP / PEM files
+### 13.1 Component ZIP / PEM files
 
 **Inspect the certificate:**
 ```bash
@@ -592,7 +773,7 @@ This lists every certificate in the chain with its subject and issuer.
 
 ---
 
-### 11.2 Full Chain PEM
+### 13.2 Full Chain PEM
 
 **Split and inspect each cert** (the file contains key + cert + intermediates concatenated):
 ```bash
@@ -605,7 +786,7 @@ openssl x509 -in www.example.com-fullchain.pem -text -noout
 
 ---
 
-### 11.3 PKCS#12 / PFX
+### 13.3 PKCS#12 / PFX
 
 **List contents:**
 ```bash
@@ -634,7 +815,7 @@ openssl rsa  -noout -modulus -in extracted_key.pem  | md5sum
 
 ---
 
-### 11.4 JKS
+### 13.4 JKS
 
 Requires the Java `keytool` utility (included with any JDK).
 
@@ -657,7 +838,7 @@ keytool -list -v -keystore www.example.com.jks -storepass changeit \
 
 ---
 
-### 11.5 P7B
+### 13.5 P7B
 
 **List all certificates in the bundle:**
 ```bash
@@ -676,7 +857,7 @@ openssl x509  -in bundle.pem -text -noout
 
 ---
 
-## 12. User Management
+## 14. User Management
 
 User management is available to **superadmin** accounts only.
 

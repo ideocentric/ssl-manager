@@ -50,6 +50,12 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint and request.endpoint.startswith('ca') %}active{% endif %}"
+             href="{{ url_for('cas.cas') }}">
+            <i class="bi bi-building-lock me-1"></i>CAs
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint and request.endpoint.startswith('profile') %}active{% endif %}"
              href="{{ url_for('profiles.profiles') }}">
             <i class="bi bi-sliders me-1"></i>Profiles

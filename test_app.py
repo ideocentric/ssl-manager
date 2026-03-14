@@ -55,12 +55,14 @@ from cryptography.x509.oid import NameOID
 from app.crypto import (
     create_components_zip,
     create_pkcs12,
+    generate_ca_key_and_cert,
     generate_key_and_csr,
     parse_cert_expiry,
     parse_pem_bundle,
+    sign_csr_with_ca,
 )
 from app.extensions import db
-from app.models import AuditLog, Certificate, CertChain, IntermediateCert, Settings, User
+from app.models import AuditLog, Certificate, CertChain, CertificateAuthority, IntermediateCert, Settings, User
 from app.validators import normalize_alias
 
 TEST_ADMIN_USERNAME = "admin"
@@ -179,6 +181,54 @@ def cert_record(flask_app):
             expiry_date=expiry,
             country="US", state="California", city="San Francisco",
             org_name="Test Org", org_unit="IT", email="admin@example.com",
+        )
+        db.session.add(cert)
+        db.session.commit()
+        return cert.id
+
+
+@pytest.fixture()
+def ca_record(flask_app):
+    """A CertificateAuthority inserted directly using 1024-bit keys for speed."""
+    key_pem, cert_pem = generate_ca_key_and_cert(
+        common_name="Test Root CA",
+        key_size=1024,
+        validity_days=365,
+        country="US",
+        state="California",
+        city="San Francisco",
+        org_name="Test Org",
+        org_unit="IT",
+        email="ca@test.example.com",
+    )
+    with flask_app.app_context():
+        ca = CertificateAuthority(
+            name="Test Root CA",
+            description="CA for tests",
+            key_size=1024,
+            private_key_pem=key_pem,
+            cert_pem=cert_pem,
+        )
+        db.session.add(ca)
+        db.session.commit()
+        return ca.id
+
+
+@pytest.fixture()
+def pending_cert_record(flask_app):
+    """A Certificate in pending_signing state with a CSR but no signed cert."""
+    key_pem_raw, csr_pem = generate_key_and_csr(
+        "pending.example.com", [], 1024,
+        "US", "", "", "Test Org", "", "",
+    )
+    with flask_app.app_context():
+        cert = Certificate(
+            domain="pending.example.com",
+            san_domains="[]",
+            key_size=1024,
+            private_key_pem=key_pem_raw,
+            csr_pem=csr_pem,
+            status="pending_signing",
         )
         db.session.add(cert)
         db.session.commit()
@@ -1393,3 +1443,437 @@ class TestAuditLogView:
         with flask_app.app_context():
             entry = AuditLog.query.filter_by(action="not_found", result="failure").first()
             assert entry is not None
+
+
+# ---------------------------------------------------------------------------
+# CA crypto helper tests
+# ---------------------------------------------------------------------------
+
+class TestGenerateCaKeyAndCert:
+    def test_returns_pem_strings(self):
+        key_pem, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 365, "US", "CA", "SF", "Org", "IT", "ca@test.com"
+        )
+        assert key_pem.startswith("-----BEGIN RSA PRIVATE KEY-----")
+        assert cert_pem.startswith("-----BEGIN CERTIFICATE-----")
+
+    def test_self_signed(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 365, "US", "", "", "", "", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        assert cert.subject == cert.issuer
+
+    def test_basic_constraints_ca_true(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 365, "US", "", "", "", "", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        bc = cert.extensions.get_extension_for_class(x509.BasicConstraints)
+        assert bc.value.ca is True
+
+    def test_cn_matches_common_name(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "My Root CA", 1024, 365, "US", "", "", "", "", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        assert cn == "My Root CA"
+
+    def test_expiry_in_future(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 365, "US", "", "", "", "", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        try:
+            expiry = cert.not_valid_after_utc
+        except AttributeError:
+            expiry = cert.not_valid_after.replace(tzinfo=timezone.utc)
+        assert expiry > datetime.now(timezone.utc)
+
+    def test_validity_days_respected(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 730, "US", "", "", "", "", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        try:
+            expiry = cert.not_valid_after_utc
+            start = cert.not_valid_before_utc
+        except AttributeError:
+            expiry = cert.not_valid_after.replace(tzinfo=timezone.utc)
+            start = cert.not_valid_before.replace(tzinfo=timezone.utc)
+        delta = (expiry - start).days
+        assert 729 <= delta <= 731
+
+    def test_subject_fields_populated(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 365, "US", "Texas", "Austin", "ACME", "Dev", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        attrs = {a.oid: a.value for a in cert.subject}
+        assert attrs[NameOID.COUNTRY_NAME] == "US"
+        assert attrs[NameOID.STATE_OR_PROVINCE_NAME] == "Texas"
+        assert attrs[NameOID.LOCALITY_NAME] == "Austin"
+        assert attrs[NameOID.ORGANIZATION_NAME] == "ACME"
+
+    def test_key_usage_has_cert_sign(self):
+        _, cert_pem = generate_ca_key_and_cert(
+            "Test CA", 1024, 365, "US", "", "", "", "", ""
+        )
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        ku = cert.extensions.get_extension_for_class(x509.KeyUsage)
+        assert ku.value.key_cert_sign is True
+        assert ku.value.crl_sign is True
+
+
+class TestSignCsrWithCa:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        """Generate a CA and a CSR once for all tests in this class."""
+        self.ca_key_pem, self.ca_cert_pem = generate_ca_key_and_cert(
+            "Test Root CA", 1024, 365, "US", "", "", "", "", ""
+        )
+        self.csr_key_pem, self.csr_pem = generate_key_and_csr(
+            "leaf.example.com", ["www.leaf.example.com"], 1024,
+            "US", "CA", "SF", "Org", "IT", "",
+        )
+
+    def test_returns_pem_string(self):
+        signed = sign_csr_with_ca(self.csr_pem, self.ca_cert_pem, self.ca_key_pem, 365)
+        assert signed.startswith("-----BEGIN CERTIFICATE-----")
+
+    def test_issuer_matches_ca_subject(self):
+        signed = sign_csr_with_ca(self.csr_pem, self.ca_cert_pem, self.ca_key_pem, 365)
+        cert = x509.load_pem_x509_certificate(signed.encode())
+        ca_cert = x509.load_pem_x509_certificate(self.ca_cert_pem.encode())
+        assert cert.issuer == ca_cert.subject
+
+    def test_subject_from_csr(self):
+        signed = sign_csr_with_ca(self.csr_pem, self.ca_cert_pem, self.ca_key_pem, 365)
+        cert = x509.load_pem_x509_certificate(signed.encode())
+        cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        assert cn == "leaf.example.com"
+
+    def test_san_copied_from_csr(self):
+        signed = sign_csr_with_ca(self.csr_pem, self.ca_cert_pem, self.ca_key_pem, 365)
+        cert = x509.load_pem_x509_certificate(signed.encode())
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        dns_names = [n.value for n in san.value]
+        assert "leaf.example.com" in dns_names
+        assert "www.leaf.example.com" in dns_names
+
+    def test_validity_days_respected(self):
+        signed = sign_csr_with_ca(self.csr_pem, self.ca_cert_pem, self.ca_key_pem, 90)
+        cert = x509.load_pem_x509_certificate(signed.encode())
+        try:
+            expiry = cert.not_valid_after_utc
+            start = cert.not_valid_before_utc
+        except AttributeError:
+            expiry = cert.not_valid_after.replace(tzinfo=timezone.utc)
+            start = cert.not_valid_before.replace(tzinfo=timezone.utc)
+        delta = (expiry - start).days
+        assert 89 <= delta <= 91
+
+    def test_not_a_ca(self):
+        signed = sign_csr_with_ca(self.csr_pem, self.ca_cert_pem, self.ca_key_pem, 365)
+        cert = x509.load_pem_x509_certificate(signed.encode())
+        bc = cert.extensions.get_extension_for_class(x509.BasicConstraints)
+        assert bc.value.ca is False
+
+    def test_invalid_csr_raises(self):
+        with pytest.raises(Exception):
+            sign_csr_with_ca("not a csr", self.ca_cert_pem, self.ca_key_pem, 365)
+
+
+# ---------------------------------------------------------------------------
+# CertificateAuthority model property tests
+# ---------------------------------------------------------------------------
+
+class TestCertificateAuthorityModel:
+    def _make_ca(self, name="Test CA"):
+        key_pem, cert_pem = generate_ca_key_and_cert(
+            name, 1024, 365, "US", "", "", "", "", ""
+        )
+        return CertificateAuthority(
+            name=name, key_size=1024, private_key_pem=key_pem, cert_pem=cert_pem
+        )
+
+    def test_parsed_cert_returns_x509(self):
+        ca = self._make_ca()
+        assert ca.parsed_cert is not None
+
+    def test_parsed_cert_none_on_invalid_pem(self):
+        ca = CertificateAuthority(name="Bad", key_size=1024,
+                                  private_key_pem="x", cert_pem="not a cert")
+        assert ca.parsed_cert is None
+
+    def test_expiry_date_in_future(self):
+        ca = self._make_ca()
+        assert ca.expiry_date > datetime.now(timezone.utc)
+
+    def test_expiry_date_none_on_invalid_pem(self):
+        ca = CertificateAuthority(name="Bad", key_size=1024,
+                                  private_key_pem="x", cert_pem="garbage")
+        assert ca.expiry_date is None
+
+    def test_days_until_expiry_positive(self):
+        ca = self._make_ca()
+        assert ca.days_until_expiry > 0
+
+    def test_common_name_returns_cn(self):
+        ca = self._make_ca("My Root CA")
+        assert ca.common_name == "My Root CA"
+
+    def test_common_name_falls_back_to_name(self):
+        ca = CertificateAuthority(name="Fallback", key_size=1024,
+                                  private_key_pem="x", cert_pem="garbage")
+        assert ca.common_name == "Fallback"
+
+
+# ---------------------------------------------------------------------------
+# CA route tests
+# ---------------------------------------------------------------------------
+
+class TestCaListRoute:
+    def test_get_returns_200(self, client):
+        resp = client.get("/cas")
+        assert resp.status_code == 200
+
+    def test_shows_ca_name(self, client, ca_record):
+        resp = client.get("/cas")
+        assert b"Test Root CA" in resp.data
+
+    def test_empty_state_message(self, client):
+        resp = client.get("/cas")
+        assert b"No certificate authorities" in resp.data
+
+
+class TestCaNewRoute:
+    def test_get_returns_200(self, client):
+        resp = client.get("/cas/new")
+        assert resp.status_code == 200
+
+    def test_post_missing_name_returns_error(self, client):
+        resp = client.post("/cas/new", data={
+            "name": "", "description": "", "key_size": "2048",
+            "validity_days": "365", "country": "US", "state": "", "city": "",
+            "org_name": "", "org_unit": "", "email": "",
+        })
+        assert resp.status_code == 200
+        assert b"required" in resp.data.lower()
+
+    def test_post_valid_creates_ca_and_redirects(self, client, flask_app):
+        resp = client.post("/cas/new", data={
+            "name": "New Test CA",
+            "description": "Created in test",
+            "key_size": "2048",
+            "validity_days": "365",
+            "country": "US", "state": "CA", "city": "SF",
+            "org_name": "Test Org", "org_unit": "", "email": "",
+        }, follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/cas/" in resp.headers["Location"]
+        with flask_app.app_context():
+            ca = CertificateAuthority.query.filter_by(name="New Test CA").first()
+            assert ca is not None
+            assert ca.cert_pem.startswith("-----BEGIN CERTIFICATE-----")
+
+    def test_post_duplicate_name_rejected(self, client, ca_record):
+        resp = client.post("/cas/new", data={
+            "name": "Test Root CA",
+            "description": "",
+            "key_size": "2048",
+            "validity_days": "365",
+            "country": "US", "state": "", "city": "",
+            "org_name": "", "org_unit": "", "email": "",
+        })
+        assert resp.status_code == 200
+        assert b"already exists" in resp.data
+
+    def test_post_creates_audit_log(self, client, flask_app):
+        client.post("/cas/new", data={
+            "name": "Audit CA",
+            "key_size": "2048", "validity_days": "365",
+            "country": "US", "state": "", "city": "",
+            "org_name": "", "org_unit": "", "email": "",
+        })
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="ca_create", result="success").first()
+            assert entry is not None
+
+
+class TestCaDetailRoute:
+    def test_get_returns_200(self, client, ca_record):
+        resp = client.get(f"/cas/{ca_record}")
+        assert resp.status_code == 200
+
+    def test_shows_ca_name(self, client, ca_record):
+        resp = client.get(f"/cas/{ca_record}")
+        assert b"Test Root CA" in resp.data
+
+    def test_shows_cert_pem(self, client, ca_record):
+        resp = client.get(f"/cas/{ca_record}")
+        assert b"BEGIN CERTIFICATE" in resp.data
+
+    def test_shows_pending_certs(self, client, ca_record, pending_cert_record):
+        resp = client.get(f"/cas/{ca_record}")
+        assert b"pending.example.com" in resp.data
+
+    def test_404_on_missing_ca(self, client):
+        resp = client.get("/cas/99999")
+        assert resp.status_code == 404
+
+
+class TestCaDeleteRoute:
+    def test_delete_removes_ca(self, client, flask_app, ca_record):
+        resp = client.post(f"/cas/{ca_record}/delete", follow_redirects=True)
+        assert resp.status_code == 200
+        with flask_app.app_context():
+            assert db.session.get(CertificateAuthority, ca_record) is None
+
+    def test_delete_redirects_to_list(self, client, ca_record):
+        resp = client.post(f"/cas/{ca_record}/delete", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/cas" in resp.headers["Location"]
+
+    def test_delete_creates_audit_log(self, client, flask_app, ca_record):
+        client.post(f"/cas/{ca_record}/delete")
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="ca_delete", result="success").first()
+            assert entry is not None
+
+
+class TestCaDownloadCertRoute:
+    def test_returns_pem_content(self, client, ca_record):
+        resp = client.get(f"/cas/{ca_record}/download/cert")
+        assert resp.status_code == 200
+        assert b"BEGIN CERTIFICATE" in resp.data
+
+    def test_content_type_is_pem(self, client, ca_record):
+        resp = client.get(f"/cas/{ca_record}/download/cert")
+        assert "pem" in resp.content_type or "octet-stream" in resp.content_type
+
+    def test_filename_contains_ca_name(self, client, ca_record):
+        resp = client.get(f"/cas/{ca_record}/download/cert")
+        cd = resp.headers.get("Content-Disposition", "")
+        assert "Test_Root_CA" in cd or "ca.pem" in cd
+
+
+class TestCaSignCertRoute:
+    def test_signs_pending_cert(self, client, flask_app, ca_record, pending_cert_record):
+        resp = client.post(
+            f"/cas/{ca_record}/sign/{pending_cert_record}",
+            data={"validity_days": "365"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        with flask_app.app_context():
+            cert = db.session.get(Certificate, pending_cert_record)
+            assert cert.status == "active"
+            assert cert.signed_cert_pem is not None
+            assert cert.expiry_date is not None
+
+    def test_signed_cert_is_valid_pem(self, client, flask_app, ca_record, pending_cert_record):
+        client.post(
+            f"/cas/{ca_record}/sign/{pending_cert_record}",
+            data={"validity_days": "90"},
+        )
+        with flask_app.app_context():
+            cert = db.session.get(Certificate, pending_cert_record)
+            parsed = x509.load_pem_x509_certificate(cert.signed_cert_pem.encode())
+            assert parsed is not None
+
+    def test_cannot_sign_active_cert(self, client, ca_record, cert_record):
+        # cert_record fixture has status="active"
+        resp = client.post(
+            f"/cas/{ca_record}/sign/{cert_record}",
+            data={"validity_days": "365"},
+            follow_redirects=True,
+        )
+        assert b"not in pending_signing" in resp.data
+
+    def test_sign_creates_audit_log(self, client, flask_app, ca_record, pending_cert_record):
+        client.post(
+            f"/cas/{ca_record}/sign/{pending_cert_record}",
+            data={"validity_days": "365"},
+        )
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="cert_sign", result="success").first()
+            assert entry is not None
+
+
+# ---------------------------------------------------------------------------
+# CSR import route tests
+# ---------------------------------------------------------------------------
+
+class TestCertificateImportCsrRoute:
+    def test_get_returns_200(self, client):
+        resp = client.get("/certificates/import-csr")
+        assert resp.status_code == 200
+
+    def test_post_valid_csr_creates_cert(self, client, flask_app):
+        _, csr_pem = generate_key_and_csr(
+            "imported.example.com", [], 1024, "US", "", "", "", "", ""
+        )
+        resp = client.post("/certificates/import-csr",
+                           data={"csr_pem": csr_pem, "chain_id": ""},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        with flask_app.app_context():
+            cert = Certificate.query.filter_by(domain="imported.example.com").first()
+            assert cert is not None
+            assert cert.status == "pending_signing"
+            assert cert.private_key_pem is None or cert.private_key_pem != ""
+            assert cert.csr_pem is not None
+
+    def test_post_no_csr_returns_error(self, client):
+        resp = client.post("/certificates/import-csr",
+                           data={"csr_pem": "", "chain_id": ""},
+                           follow_redirects=True)
+        assert b"No CSR provided" in resp.data
+
+    def test_post_invalid_csr_returns_error(self, client):
+        resp = client.post("/certificates/import-csr",
+                           data={"csr_pem": "not a csr", "chain_id": ""},
+                           follow_redirects=True)
+        assert b"Invalid CSR" in resp.data
+
+    def test_post_file_upload(self, client, flask_app):
+        _, csr_pem = generate_key_and_csr(
+            "fileupload.example.com", [], 1024, "US", "", "", "", "", ""
+        )
+        data = {"chain_id": "", "csr_file": (BytesIO(csr_pem.encode()), "import.csr")}
+        resp = client.post("/certificates/import-csr",
+                           data=data, content_type="multipart/form-data",
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        with flask_app.app_context():
+            cert = Certificate.query.filter_by(domain="fileupload.example.com").first()
+            assert cert is not None
+
+    def test_import_csr_creates_audit_log(self, client, flask_app):
+        _, csr_pem = generate_key_and_csr(
+            "auditimport.example.com", [], 1024, "US", "", "", "", "", ""
+        )
+        client.post("/certificates/import-csr", data={"csr_pem": csr_pem, "chain_id": ""})
+        with flask_app.app_context():
+            entry = AuditLog.query.filter_by(action="csr_import", result="success").first()
+            assert entry is not None
+
+
+# ---------------------------------------------------------------------------
+# Certificate PEM download route test
+# ---------------------------------------------------------------------------
+
+class TestDownloadCertPemRoute:
+    def test_returns_pem_content(self, client, cert_record):
+        resp = client.get(f"/certificates/{cert_record}/download/cert-pem")
+        assert resp.status_code == 200
+        assert b"BEGIN CERTIFICATE" in resp.data
+
+    def test_not_available_without_signed_cert(self, client, pending_cert_record):
+        resp = client.get(
+            f"/certificates/{pending_cert_record}/download/cert-pem",
+            follow_redirects=True,
+        )
+        assert b"not yet signed" in resp.data

@@ -61,6 +61,16 @@ def clean_db(flask_app):
         db.session.add(Settings(key_size=2048))
         db.session.add(admin)
         db.session.commit()
+        # Expunge all ORM objects so the next test starts with a clean identity
+        # map. Without this, objects seeded here (e.g. User id=1) remain tracked
+        # by SQLAlchemy, and any test that truncates tables then creates a new
+        # row with the same PK triggers an SAWarning about identity map conflicts.
+        db.session.expunge_all()
+    # The nested context above runs its own session. The outer session-scoped
+    # app context (kept alive by flask_app) shares the same SQLite database via
+    # StaticPool, so its identity map can hold stale User(id=1) objects from
+    # prior test requests. Expunge those now so the next test starts clean.
+    db.session.expunge_all()
     # Clear Flask-Login's cached user from the persistent app context's g object.
     # Because flask_app holds an app_context open for the whole session,
     # Flask reuses it for all requests, making g._login_user persist across tests.

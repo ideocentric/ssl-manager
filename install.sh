@@ -264,6 +264,8 @@ RuntimeDirectoryMode=0750
 
 # Gunicorn binds to the Unix socket; umask 007 → socket mode 660
 # (www-data is in the ssl-manager group so it can connect)
+# Timeout of 120s covers RSA-4096 CA key generation on constrained hardware
+# (typical generation time is < 5s; 120s provides ample headroom)
 ExecStart=${APP_DIR}/venv/bin/gunicorn \\
     --workers ${workers} \\
     --bind unix:${SOCKET_PATH} \\
@@ -492,6 +494,10 @@ echo "    App logs       : sudo tail -f ${LOG_DIR}/error.log"
 echo "    nginx logs     : sudo tail -f /var/log/nginx/ssl-manager-access.log"
 echo "    Config         : ${ENV_FILE}"
 echo "    Database       : ${DATA_DIR}/ssl_manager.db"
+echo
+warn "The database contains private key material (certificate keys AND CA private keys)."
+warn "Treat backup archives at /var/backups/ssl-manager/ with the same sensitivity."
+warn "Restrict backup storage access accordingly if offsite copies are made."
 echo
 warn "To upgrade after pulling new code:  sudo bash install.sh --upgrade"
 warn "To remove everything:               sudo bash install.sh --uninstall"

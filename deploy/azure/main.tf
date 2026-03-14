@@ -159,7 +159,8 @@ resource "azurerm_linux_virtual_machine" "main" {
   # encryption_at_host_enabled encrypts the OS disk, temporary disk, and their
   # read/write caches at the hypervisor level using platform-managed keys.
   # This covers all data written by the VM, including the SQLite database, logs,
-  # and backup archives stored on the OS disk.
+  # backup archives, SSL certificate private keys, and CA private keys generated
+  # by the internal CA module — all stored on the OS disk.
   #
   # PREREQUISITE — register the feature on your subscription once before the
   # first 'terraform apply':

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-building-lock me-2"></i>Certificate Authorities</h2>
+  <a href="{{ url_for('cas.ca_new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>New CA
+  </a>
+</div>
+
+<div class="alert alert-info d-flex align-items-start mb-4">
+  <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+  <div>
+    Internal Certificate Authorities are self-signed root CAs used to sign certificates stored in this system.
+    Use them to issue certificates for internal services or to sign CSRs imported from external systems (e.g. Cisco ISE).
+    Export the CA public certificate to install in trust stores on your devices and servers.
+  </div>
+</div>
+
+{% if authorities %}
+<div class="row g-3">
+  {% for ca in authorities %}
+  {% set days = ca.days_until_expiry %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-dark text-white">
+        <h6 class="mb-0"><i class="bi bi-building-lock me-2"></i>{{ ca.name }}</h6>
+      </div>
+      <div class="card-body d-flex flex-column">
+        {% if ca.description %}
+        <p class="text-muted small flex-grow-1">{{ ca.description }}</p>
+        {% else %}
+        <p class="text-muted small flex-grow-1 fst-italic">No description</p>
+        {% endif %}
+        <div class="mb-3">
+          <span class="badge bg-secondary me-1">RSA-{{ ca.key_size }}</span>
+          {% if days is none %}
+          <span class="badge bg-secondary">No expiry info</span>
+          {% elif days < 0 %}
+          <span class="badge bg-danger">Expired {{ (-days) }} day(s) ago</span>
+          {% elif days <= 30 %}
+          <span class="badge bg-warning text-dark">{{ days }} day(s) remaining</span>
+          {% elif days <= 90 %}
+          <span class="badge bg-info text-dark">{{ days }} day(s) remaining</span>
+          {% else %}
+          <span class="badge bg-success">{{ days }} day(s) remaining</span>
+          {% endif %}
+        </div>
+        {% if ca.expiry_date %}
+        <p class="text-muted small mb-3">Expires: {{ ca.expiry_date.strftime('%Y-%m-%d') }}</p>
+        {% endif %}
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('cas.ca_detail', ca_id=ca.id) }}" class="btn btn-primary btn-sm flex-grow-1">
+            <i class="bi bi-eye me-1"></i>Manage
+          </a>
+          <a href="{{ url_for('cas.ca_download_cert', ca_id=ca.id) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-building-lock display-4 text-muted mb-3 d-block"></i>
+    <h5 class="text-muted">No certificate authorities yet</h5>
+    <p class="text-muted mb-4">Create an internal CA to sign certificates stored in this system.<br>
+    Export the CA public certificate to install it in client trust stores.</p>
+    <a href="{{ url_for('cas.ca_new') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>New CA
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

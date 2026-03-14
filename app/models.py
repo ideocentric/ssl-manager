@@ -214,6 +214,64 @@ class Certificate(db.Model):
         return normalize_alias(self.domain)
 
 
+class CertificateAuthority(db.Model):
+    """Self-signed root CA used to sign internal certificates."""
+
+    __tablename__ = "certificate_authority"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    name            = db.Column(db.String(256), nullable=False, unique=True)
+    description     = db.Column(db.String(512), default="")
+    key_size        = db.Column(db.Integer, default=4096)
+    private_key_pem = db.Column(db.Text, nullable=False)
+    cert_pem        = db.Column(db.Text, nullable=False)
+    created_at      = db.Column(db.DateTime, default=datetime.now)
+
+    @property
+    def parsed_cert(self):
+        """Return the parsed x509 certificate object, or None on failure."""
+        try:
+            return x509.load_pem_x509_certificate(self.cert_pem.encode())
+        except Exception:
+            return None
+
+    @property
+    def expiry_date(self):
+        """Return the CA certificate expiry as a timezone-aware datetime, or None."""
+        cert = self.parsed_cert
+        if cert is None:
+            return None
+        try:
+            exp = cert.not_valid_after_utc
+        except AttributeError:
+            exp = cert.not_valid_after
+            if exp is not None and exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+        return exp
+
+    @property
+    def days_until_expiry(self):
+        """Return the number of days until the CA certificate expires, or None."""
+        if self.expiry_date is None:
+            return None
+        now = datetime.now(timezone.utc)
+        exp = self.expiry_date
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return (exp - now).days
+
+    @property
+    def common_name(self):
+        """Return the CA certificate Common Name."""
+        cert = self.parsed_cert
+        if cert is None:
+            return self.name
+        try:
+            return cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        except (IndexError, Exception):
+            return self.name
+
+
 class AuditLog(db.Model):
     """Immutable record of a security-relevant action performed in the application."""
 

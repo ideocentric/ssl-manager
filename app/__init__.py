@@ -107,6 +107,7 @@ def create_app(test_config=None):
     from .routes.certificates import bp as certificates_bp
     from .routes.profiles import bp as profiles_bp
     from .routes.chains import bp as chains_bp
+    from .routes.cas import bp as cas_bp
     from .routes.admin import bp as admin_bp
 
     app.register_blueprint(auth_bp)
@@ -114,6 +115,7 @@ def create_app(test_config=None):
     app.register_blueprint(certificates_bp)
     app.register_blueprint(profiles_bp)
     app.register_blueprint(chains_bp)
+    app.register_blueprint(cas_bp)
     app.register_blueprint(admin_bp)
 
     # ---------------------------------------------------------------------------
@@ -173,7 +175,7 @@ def create_app(test_config=None):
     with app.app_context():
         # Import models to ensure they are registered with SQLAlchemy before
         # create_all() is called.
-        from .models import Certificate, CertChain, IntermediateCert, Settings  # noqa: F401
+        from .models import Certificate, CertChain, CertificateAuthority, IntermediateCert, Settings  # noqa: F401
 
         db.create_all()
         # Ensure new columns exist on databases created before this schema version

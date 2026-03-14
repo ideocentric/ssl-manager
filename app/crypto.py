@@ -12,7 +12,7 @@ import os
 import re
 import subprocess
 import tempfile
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -123,6 +123,94 @@ def generate_key_and_csr(domain, san_list, key_size, country, state, city, org_n
 
     csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode()
     return private_key_pem, csr_pem
+
+
+# ---------------------------------------------------------------------------
+# CA key/certificate generation and CSR signing
+# ---------------------------------------------------------------------------
+
+def generate_ca_key_and_cert(common_name, key_size, validity_days, country, state, city, org_name, org_unit, email):
+    """Generate a self-signed root CA key and certificate.
+
+    Returns (private_key_pem, cert_pem) as strings.
+    """
+    key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+
+    private_key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+
+    name_attrs = []
+    if country:
+        name_attrs.append(x509.NameAttribute(NameOID.COUNTRY_NAME, country[:2]))
+    if state:
+        name_attrs.append(x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, state))
+    if city:
+        name_attrs.append(x509.NameAttribute(NameOID.LOCALITY_NAME, city))
+    if org_name:
+        name_attrs.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name))
+    if org_unit:
+        name_attrs.append(x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, org_unit))
+    if email:
+        name_attrs.append(x509.NameAttribute(NameOID.EMAIL_ADDRESS, email))
+    name_attrs.append(x509.NameAttribute(NameOID.COMMON_NAME, common_name))
+
+    subject = x509.Name(name_attrs)
+    now = datetime.now(timezone.utc)
+
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + timedelta(days=validity_days))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, key_cert_sign=True, crl_sign=True,
+            content_commitment=False, key_encipherment=False,
+            data_encipherment=False, key_agreement=False,
+            encipher_only=False, decipher_only=False,
+        ), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+    return private_key_pem, cert_pem
+
+
+def sign_csr_with_ca(csr_pem, ca_cert_pem, ca_key_pem, validity_days=365):
+    """Sign a CSR with a CA key/cert. Returns signed certificate PEM string."""
+    csr = x509.load_pem_x509_csr(csr_pem.encode())
+    ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
+    ca_key = serialization.load_pem_private_key(ca_key_pem.encode(), password=None)
+
+    now = datetime.now(timezone.utc)
+
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(csr.subject)
+        .issuer_name(ca_cert.subject)
+        .public_key(csr.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + timedelta(days=validity_days))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+    )
+
+    # Copy SANs from CSR if present
+    try:
+        san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        builder = builder.add_extension(san_ext.value, critical=False)
+    except x509.ExtensionNotFound:
+        pass
+
+    cert = builder.sign(ca_key, hashes.SHA256())
+    return cert.public_bytes(serialization.Encoding.PEM).decode()
 
 
 # ---------------------------------------------------------------------------
