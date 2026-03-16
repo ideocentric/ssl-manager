@@ -26,7 +26,10 @@ bp = Blueprint("cas", __name__)
 def cas():
     """GET /cas — List all certificate authorities."""
     authorities = CertificateAuthority.query.order_by(CertificateAuthority.name.asc()).all()
-    return render_template("cas.html", authorities=authorities)
+    all_profiles = Settings.query.order_by(Settings.name.asc()).all()
+    default_profile = get_default_profile()
+    return render_template("cas.html", authorities=authorities,
+                           all_profiles=all_profiles, default_profile=default_profile)
 
 
 @bp.route("/cas/new", methods=["GET", "POST"])

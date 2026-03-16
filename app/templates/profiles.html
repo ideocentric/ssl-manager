@@ -1,78 +1,338 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0"><i class="bi bi-sliders me-2"></i>Certificate Profiles</h4>
-  <a href="{{ url_for('profiles.profile_new') }}" class="btn btn-primary btn-sm">
-    <i class="bi bi-plus-circle me-1"></i>New Profile
-  </a>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-sliders me-2"></i>Certificate Profiles</h2>
+  <button class="btn btn-primary" data-profile-new>
+    <i class="bi bi-plus-lg me-1"></i>New Profile
+  </button>
 </div>
-
-<p class="text-muted">
-  Profiles pre-fill the subject fields (organization, country, key size, etc.) when generating a new CSR.
-  The <span class="badge bg-success">default</span> profile is used automatically when only one profile exists
-  or when no specific profile is selected.
-</p>
 
 {% if profiles %}
-<div class="table-responsive">
-  <table class="table table-hover align-middle">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Key Size</th>
-        <th>Country</th>
-        <th>Organization</th>
-        <th>Email</th>
-        <th class="text-end">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in profiles %}
-      <tr>
-        <td>
-          {{ p.name }}
-          {% if p.is_default %}
-          <span class="badge bg-success ms-1">default</span>
-          {% endif %}
-        </td>
-        <td>RSA-{{ p.key_size }}</td>
-        <td>{{ p.country or '—' }}</td>
-        <td>{{ p.org_name or '—' }}</td>
-        <td>{{ p.email or '—' }}</td>
-        <td class="text-end text-nowrap">
-          {% if not p.is_default %}
-          <form method="post" action="{{ url_for('profiles.profile_set_default', profile_id=p.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-success btn-sm"
-                    title="Make default">
-              <i class="bi bi-star me-1"></i>Set Default
+<div class="mb-3">
+  <div class="input-group">
+    <span class="input-group-text"><i class="bi bi-search text-secondary"></i></span>
+    <input type="search" id="profileSearch" class="form-control"
+           placeholder="Search by name, organization, country, email…" autocomplete="off">
+    <span id="profileSearchCount" class="input-group-text text-muted small"></span>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-sliders me-2"></i>Certificate Profiles</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+    <table class="table table-hover mb-0" id="profileTable">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0" style="cursor:pointer; white-space:nowrap;">
+            Name <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="1" style="cursor:pointer; white-space:nowrap;">
+            Key Size <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="2" style="cursor:pointer; white-space:nowrap;">
+            Country <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="3" style="cursor:pointer; white-space:nowrap;">
+            Organization <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="4" style="cursor:pointer; white-space:nowrap;">
+            Email <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in profiles %}
+        <tr>
+          <td class="align-middle text-muted fw-semibold" data-sort="{{ p.name }}"
+              data-search="{{ [p.name, p.org_name or '', p.country or '', p.email or ''] | join(' ') | lower }}">
+            {{ p.name }}
+            {% if p.is_default %}
+            <span class="badge-status badge-valid ms-1">default</span>
+            {% endif %}
+          </td>
+          <td class="align-middle text-muted" data-sort="{{ '%05d' % p.key_size }}">
+            RSA-{{ p.key_size }}
+          </td>
+          <td class="align-middle text-muted" data-sort="{{ p.country or '' }}">
+            {{ p.country or '—' }}
+          </td>
+          <td class="align-middle text-muted" data-sort="{{ p.org_name or '' }}">
+            {{ p.org_name or '—' }}
+          </td>
+          <td class="align-middle text-muted" data-sort="{{ p.email or '' }}">
+            {{ p.email or '—' }}
+          </td>
+          <td class="align-middle text-end text-nowrap">
+            {% if not p.is_default %}
+            <form method="post" action="{{ url_for('profiles.profile_set_default', profile_id=p.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-success me-1" title="Make default">
+                <i class="bi bi-star me-1"></i>Set Default
+              </button>
+            </form>
+            {% endif %}
+            <button class="btn btn-sm btn-secondary me-1"
+                    data-profile-edit="{{ url_for('profiles.profile_edit', profile_id=p.id) }}"
+                    data-profile-name="{{ p.name | e }}"
+                    data-profile-key-size="{{ p.key_size }}"
+                    data-profile-country="{{ p.country or '' }}"
+                    data-profile-state="{{ p.state or '' }}"
+                    data-profile-city="{{ p.city or '' }}"
+                    data-profile-org-name="{{ p.org_name or '' }}"
+                    data-profile-org-unit="{{ p.org_unit or '' }}"
+                    data-profile-email="{{ p.email or '' }}">
+              <i class="bi bi-pencil me-1"></i>Edit
             </button>
-          </form>
-          {% endif %}
-          <a href="{{ url_for('profiles.profile_edit', profile_id=p.id) }}"
-             class="btn btn-secondary btn-sm ms-1">
-            <i class="bi bi-pencil me-1"></i>Edit
-          </a>
-          {% if profiles|length > 1 %}
-          <form method="post" action="{{ url_for('profiles.profile_delete', profile_id=p.id) }}"
-                class="d-inline ms-1"
-                onsubmit="return confirm('Delete profile \"{{ p.name|e }}\"?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-danger btn-sm">
-              <i class="bi bi-trash me-1"></i>Delete
+            {% if profiles|length > 1 %}
+            <button class="btn btn-sm btn-danger"
+                    data-confirm-delete="{{ url_for('profiles.profile_delete', profile_id=p.id) }}"
+                    data-confirm-message="Delete profile {{ p.name | e }}?">
+              <i class="bi bi-trash"></i>
             </button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
 </div>
 {% else %}
-<div class="alert alert-info">
-  No profiles yet. <a href="{{ url_for('profiles.profile_new') }}">Create one</a> to set organization defaults for new certificates.
+<div class="card shadow-sm">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-sliders display-4 text-muted mb-3 d-block"></i>
+    <h5 class="text-muted">No profiles yet</h5>
+    <p class="text-muted mb-4">Profiles pre-fill subject fields when generating a new CSR.</p>
+    <button class="btn btn-primary" data-profile-new>
+      <i class="bi bi-plus-lg me-1"></i>New Profile
+    </button>
+  </div>
 </div>
+{% endif %}
+
+<!-- Profile form modal (New / Edit) -->
+<div class="modal fade" id="profileFormModal" tabindex="-1" aria-labelledby="profileFormModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="profileFormModalLabel">
+          <i class="bi bi-sliders me-2"></i><span id="profileFormTitle">New Certificate Profile</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-4">
+          Profile values pre-fill the certificate subject fields when generating new CSRs.
+          You can override individual fields at certificate-creation time.
+        </p>
+
+        <form id="profileForm" method="post" action="{{ url_for('profiles.profile_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Profile Name <span class="text-danger">*</span></label>
+            <input type="text" id="pf_name" name="name" class="form-control" required maxlength="128"
+                   placeholder="e.g. Acme Corp — US"
+                   onblur="this.value=this.value.trim()" />
+            <div class="form-text">A short, descriptive name to identify this profile in the dropdown.</div>
+          </div>
+
+          <hr class="my-3" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Key Settings</h6>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Default Key Size</label>
+            <select id="pf_key_size" name="key_size" class="form-select" style="max-width:260px;">
+              <option value="2048">2048 (RSA-2048)</option>
+              <option value="4096">4096 (RSA-4096)</option>
+            </select>
+            <div class="form-text">RSA-2048 is widely compatible; RSA-4096 offers stronger security.</div>
+          </div>
+
+          <hr class="my-3" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Subject Distinguished Name (DN)</h6>
+
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Country <span class="text-muted">(2 chars)</span></label>
+              <input type="text" id="pf_country" name="country" class="form-control" maxlength="2"
+                     placeholder="US"
+                     onblur="this.value=this.value.trim().toUpperCase()" />
+            </div>
+            <div class="col-md-9">
+              <label class="form-label fw-semibold">State / Province</label>
+              <input type="text" id="pf_state" name="state" class="form-control"
+                     placeholder="California"
+                     onblur="this.value=this.value.trim()" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">City / Locality</label>
+              <input type="text" id="pf_city" name="city" class="form-control"
+                     placeholder="San Francisco"
+                     onblur="this.value=this.value.trim()" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Organization Name</label>
+              <input type="text" id="pf_org_name" name="org_name" class="form-control"
+                     placeholder="Acme Corp"
+                     onblur="this.value=this.value.trim()" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Organizational Unit</label>
+              <input type="text" id="pf_org_unit" name="org_unit" class="form-control"
+                     placeholder="IT Department"
+                     onblur="this.value=this.value.trim()" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Email Address</label>
+              <input type="email" id="pf_email" name="email" class="form-control"
+                     placeholder="admin@example.com"
+                     onblur="this.value=this.value.trim()" />
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x me-1"></i>Cancel
+        </button>
+        <button type="submit" form="profileForm" class="btn btn-primary">
+          <i class="bi bi-floppy-fill me-1"></i><span id="profileFormSubmitLabel">Save Profile</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const modal      = new bootstrap.Modal(document.getElementById('profileFormModal'));
+  const formEl     = document.getElementById('profileForm');
+  const titleEl    = document.getElementById('profileFormTitle');
+  const submitEl   = document.getElementById('profileFormSubmitLabel');
+  const newUrl     = '{{ url_for("profiles.profile_new") }}';
+
+  function clearForm() {
+    document.getElementById('pf_name').value     = '';
+    document.getElementById('pf_key_size').value = '2048';
+    document.getElementById('pf_country').value  = '';
+    document.getElementById('pf_state').value    = '';
+    document.getElementById('pf_city').value     = '';
+    document.getElementById('pf_org_name').value = '';
+    document.getElementById('pf_org_unit').value = '';
+    document.getElementById('pf_email').value    = '';
+  }
+
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-profile-new]')) {
+      clearForm();
+      formEl.action        = newUrl;
+      titleEl.textContent  = 'New Certificate Profile';
+      submitEl.textContent = 'Create Profile';
+      modal.show();
+      return;
+    }
+
+    const editBtn = e.target.closest('[data-profile-edit]');
+    if (editBtn) {
+      const d = editBtn.dataset;
+      formEl.action        = d.profileEdit;
+      titleEl.textContent  = 'Edit Profile: ' + d.profileName;
+      submitEl.textContent = 'Save Changes';
+      document.getElementById('pf_name').value     = d.profileName     || '';
+      document.getElementById('pf_country').value  = d.profileCountry  || '';
+      document.getElementById('pf_state').value    = d.profileState    || '';
+      document.getElementById('pf_city').value     = d.profileCity     || '';
+      document.getElementById('pf_org_name').value = d.profileOrgName  || '';
+      document.getElementById('pf_org_unit').value = d.profileOrgUnit  || '';
+      document.getElementById('pf_email').value    = d.profileEmail    || '';
+      const ks = document.getElementById('pf_key_size');
+      for (let i = 0; i < ks.options.length; i++) {
+        if (ks.options[i].value === d.profileKeySize) { ks.selectedIndex = i; break; }
+      }
+      modal.show();
+    }
+  });
+})();
+</script>
+
+{% if profiles %}
+<script>
+(function () {
+  const table   = document.getElementById('profileTable');
+  const headers = table.querySelectorAll('th.sortable');
+  let   sortCol = 0;
+  let   sortAsc = true;
+
+  function sortTable(col, asc) {
+    const tbody = table.tBodies[0];
+    const rows  = Array.from(tbody.rows);
+    rows.sort((a, b) => {
+      const av = a.cells[col].dataset.sort || '';
+      const bv = b.cells[col].dataset.sort || '';
+      return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    rows.forEach(r => tbody.appendChild(r));
+
+    headers.forEach((th, i) => {
+      const icon = th.querySelector('.sort-icon');
+      if (i === col) {
+        icon.className = 'bi ms-1 sort-icon text-primary ' +
+                         (asc ? 'bi-arrow-up' : 'bi-arrow-down');
+      } else {
+        icon.className = 'bi bi-arrow-down-up text-secondary ms-1 sort-icon';
+      }
+    });
+  }
+
+  headers.forEach((th, i) => {
+    th.addEventListener('click', () => {
+      if (sortCol === i) {
+        sortAsc = !sortAsc;
+      } else {
+        sortCol = i;
+        sortAsc = true;
+      }
+      sortTable(sortCol, sortAsc);
+    });
+  });
+
+  const searchInput = document.getElementById('profileSearch');
+  const countBadge  = document.getElementById('profileSearchCount');
+  const totalRows   = table.tBodies[0].rows.length;
+
+  function updateCount(visible) {
+    countBadge.textContent = visible < totalRows
+      ? visible + ' of ' + totalRows
+      : totalRows + ' profile' + (totalRows === 1 ? '' : 's');
+  }
+
+  function filterTable() {
+    const q     = searchInput.value.trim().toLowerCase();
+    const tbody = table.tBodies[0];
+    let   shown = 0;
+    Array.from(tbody.rows).forEach(row => {
+      const haystack = row.cells[0].dataset.search || '';
+      const match    = !q || haystack.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    updateCount(shown);
+  }
+
+  searchInput.addEventListener('input', filterTable);
+
+  sortTable(sortCol, sortAsc);
+  updateCount(totalRows);
+})();
+</script>
 {% endif %}
 {% endblock %}

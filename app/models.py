@@ -141,6 +141,17 @@ class IntermediateCert(db.Model):
             return str(cert.subject)
 
     @property
+    def days_until_expiry(self):
+        """Return the number of days until the certificate expires, or None if not set."""
+        if self.expiry_date is None:
+            return None
+        now = datetime.now(timezone.utc)
+        exp = self.expiry_date
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return (exp - now).days
+
+    @property
     def is_root(self):
         """Return True if the certificate is self-signed (subject equals issuer)."""
         cert = self.parsed_cert

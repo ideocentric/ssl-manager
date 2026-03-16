@@ -162,6 +162,17 @@ def certificate_detail(cert_id):
     return render_template("cert_detail.html", cert=cert, intermediates=intermediates, chains=chains, cas=cas)
 
 
+@bp.route("/certificates/<int:cert_id>/modal")
+@login_required
+def certificate_detail_modal(cert_id):
+    """GET /certificates/<cert_id>/modal — Partial for the detail modal."""
+    cert = db.get_or_404(Certificate, cert_id)
+    intermediates = get_chain_intermediates(cert.chain_id)
+    chains = CertChain.query.order_by(CertChain.name.asc()).all()
+    cas = CertificateAuthority.query.order_by(CertificateAuthority.name.asc()).all()
+    return render_template("cert_detail_modal.html", cert=cert, intermediates=intermediates, chains=chains, cas=cas)
+
+
 @bp.route("/certificates/<int:cert_id>/set-chain", methods=["POST"])
 @login_required
 def certificate_set_chain(cert_id):

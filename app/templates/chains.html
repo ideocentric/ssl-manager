@@ -3,18 +3,16 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2><i class="bi bi-diagram-3 me-2"></i>Certificate Chains</h2>
-  <a href="{{ url_for('chains.chain_new') }}" class="btn btn-primary">
+  <button class="btn btn-primary" data-chain-new>
     <i class="bi bi-plus-lg me-1"></i>New Chain
-  </a>
+  </button>
 </div>
 
-<div class="alert alert-info d-flex align-items-start mb-4">
-  <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
-  <div>
-    Chains group intermediate and root CA certificates together. Assign a chain to each SSL certificate
-    so downloads include the correct trust path for that CA. Multiple chains can coexist — useful when
-    transitioning between CA providers or intermediate certificate generations.
-  </div>
+<div class="alert alert-info mb-4" role="alert">
+  <i class="bi bi-info-circle me-2"></i>
+  Chains group intermediate and root CA certificates together. Assign a chain to each SSL certificate
+  so downloads include the correct trust path for that CA. Multiple chains can coexist — useful when
+  transitioning between CA providers or intermediate certificate generations.
 </div>
 
 {% if chains %}
@@ -22,7 +20,7 @@
   {% for chain in chains %}
   <div class="col-md-6 col-lg-4">
     <div class="card shadow-sm h-100">
-      <div class="card-header bg-primary text-white">
+      <div class="card-header">
         <h6 class="mb-0"><i class="bi bi-link-45deg me-2"></i>{{ chain.name }}</h6>
       </div>
       <div class="card-body d-flex flex-column">
@@ -43,16 +41,17 @@
           <a href="{{ url_for('chains.chain_detail', chain_id=chain.id) }}" class="btn btn-primary btn-sm flex-grow-1">
             <i class="bi bi-eye me-1"></i>Manage
           </a>
-          <a href="{{ url_for('chains.chain_edit', chain_id=chain.id) }}" class="btn btn-secondary btn-sm">
+          <button class="btn btn-secondary btn-sm"
+                  data-chain-edit="{{ url_for('chains.chain_update', chain_id=chain.id) }}"
+                  data-chain-name="{{ chain.name | e }}"
+                  data-chain-desc="{{ chain.description | e if chain.description else '' }}">
             <i class="bi bi-pencil"></i>
-          </a>
-          <form method="post" action="{{ url_for('chains.chain_delete', chain_id=chain.id) }}" class="d-inline"
-                onsubmit="return confirm('Delete chain \'{{ chain.name }}\'?\n\nIts intermediate certificates will be permanently removed.\nSSL certificates assigned to it will be unlinked (not deleted).')">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-danger btn-sm">
-              <i class="bi bi-trash"></i>
-            </button>
-          </form>
+          </button>
+          <button class="btn btn-danger btn-sm"
+                  data-confirm-delete="{{ url_for('chains.chain_delete', chain_id=chain.id) }}"
+                  data-confirm-message="Delete chain {{ chain.name | e }}? Its intermediate certificates will be permanently removed. SSL certificates assigned to it will be unlinked (not deleted).">
+            <i class="bi bi-trash"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -65,10 +64,85 @@
     <i class="bi bi-diagram-3 display-4 text-muted mb-3 d-block"></i>
     <h5 class="text-muted">No chains yet</h5>
     <p class="text-muted mb-4">Create a chain and add your intermediate and root CA certificates to it.<br>Then assign the chain to each SSL certificate for correct chain downloads.</p>
-    <a href="{{ url_for('chains.chain_new') }}" class="btn btn-primary">
+    <button class="btn btn-primary" data-chain-new>
       <i class="bi bi-plus-lg me-1"></i>New Chain
-    </a>
+    </button>
   </div>
 </div>
 {% endif %}
+
+<!-- Chain form modal (New / Edit) -->
+<div class="modal fade" id="chainFormModal" tabindex="-1" aria-labelledby="chainFormModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="chainFormModalLabel">
+          <i class="bi bi-link-45deg me-2"></i><span id="chainFormModalTitle">New Chain</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="chainForm" method="post" action="{{ url_for('chains.chain_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+            <input type="text" id="chainFormName" name="name" class="form-control" required
+                   placeholder="e.g. GoDaddy G2 2024"
+                   onblur="this.value=this.value.trim()" />
+            <div class="form-text">A descriptive name — include the CA and year if managing multiple generations.</div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Description</label>
+            <input type="text" id="chainFormDesc" name="description" class="form-control"
+                   placeholder="Optional notes"
+                   onblur="this.value=this.value.trim()" />
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x me-1"></i>Cancel
+        </button>
+        <button type="submit" form="chainForm" class="btn btn-primary">
+          <i class="bi bi-floppy-fill me-1"></i><span id="chainFormSubmitLabel">Create Chain</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const modal      = new bootstrap.Modal(document.getElementById('chainFormModal'));
+  const formEl     = document.getElementById('chainForm');
+  const titleEl    = document.getElementById('chainFormModalTitle');
+  const submitEl   = document.getElementById('chainFormSubmitLabel');
+  const nameInput  = document.getElementById('chainFormName');
+  const descInput  = document.getElementById('chainFormDesc');
+  const newUrl     = '{{ url_for("chains.chain_new") }}';
+
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-chain-new]')) {
+      formEl.action  = newUrl;
+      titleEl.textContent  = 'New Chain';
+      submitEl.textContent = 'Create Chain';
+      nameInput.value = '';
+      descInput.value = '';
+      modal.show();
+      return;
+    }
+    const editBtn = e.target.closest('[data-chain-edit]');
+    if (editBtn) {
+      formEl.action  = editBtn.dataset.chainEdit;
+      titleEl.textContent  = 'Edit Chain';
+      submitEl.textContent = 'Save Changes';
+      nameInput.value = editBtn.dataset.chainName || '';
+      descInput.value = editBtn.dataset.chainDesc || '';
+      modal.show();
+    }
+  });
+})();
+</script>
 {% endblock %}

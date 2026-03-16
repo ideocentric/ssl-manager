@@ -92,31 +92,23 @@
             <th>Domain</th>
             <th>Key Size</th>
             <th>Created</th>
-            <th>Validity (days)</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {% for cert in pending_certs %}
           <tr>
-            <td class="fw-semibold">{{ cert.domain }}</td>
-            <td>RSA-{{ cert.key_size }}</td>
-            <td>{{ cert.created_at.strftime('%Y-%m-%d') if cert.created_at else '—' }}</td>
-            <td>
-              <form method="post" action="{{ url_for('cas.ca_sign_cert', ca_id=ca.id, cert_id=cert.id) }}"
-                    class="d-flex gap-2 align-items-center"
-                    onsubmit="return confirm('Sign certificate for {{ cert.domain }} with CA \'{{ ca.name }}\'?')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="number" name="validity_days" value="365" min="1" max="3650"
-                       class="form-control form-control-sm" style="width:100px;" />
-                <button type="submit" class="btn btn-warning btn-sm text-dark">
-                  <i class="bi bi-pen me-1"></i>Sign
-                </button>
-              </form>
-            </td>
-            <td>
+            <td class="align-middle text-muted fw-semibold">{{ cert.domain }}</td>
+            <td class="align-middle text-muted">RSA-{{ cert.key_size }}</td>
+            <td class="align-middle text-muted">{{ cert.created_at.strftime('%Y-%m-%d') if cert.created_at else '—' }}</td>
+            <td class="align-middle text-end text-nowrap">
+              <button class="btn btn-warning btn-sm text-dark me-1"
+                      data-sign-url="{{ url_for('cas.ca_sign_cert', ca_id=ca.id, cert_id=cert.id) }}"
+                      data-sign-domain="{{ cert.domain | e }}">
+                <i class="bi bi-pen me-1"></i>Sign
+              </button>
               <a href="{{ url_for('certificates.certificate_detail', cert_id=cert.id) }}"
-                 class="btn btn-outline-secondary btn-sm">
+                 class="btn btn-secondary btn-sm">
                 <i class="bi bi-eye"></i>
               </a>
             </td>
@@ -152,14 +144,68 @@
         Certificates signed by this CA are <strong>not</strong> deleted but will no longer be re-signable here.
         This action cannot be undone.
       </p>
-      <form method="post" action="{{ url_for('cas.ca_delete', ca_id=ca.id) }}"
-            onsubmit="return confirm('Permanently delete CA \'{{ ca.name }}\'?\n\nThis cannot be undone.')">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-danger">
-          <i class="bi bi-trash me-1"></i>Delete CA
-        </button>
-      </form>
+      <button class="btn btn-danger"
+              data-confirm-delete="{{ url_for('cas.ca_delete', ca_id=ca.id) }}"
+              data-confirm-message="Permanently delete CA {{ ca.name | e }}? This cannot be undone.">
+        <i class="bi bi-trash me-1"></i>Delete CA
+      </button>
     </div>
   </div>
 </div>
+<!-- Sign Certificate Modal -->
+<div class="modal fade" id="signCertModal" tabindex="-1" aria-labelledby="signCertModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="signCertModalLabel">
+          <i class="bi bi-pen me-2"></i>Sign Certificate
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Sign <strong id="signCertDomain"></strong> with CA <strong>{{ ca.name }}</strong>.
+          The certificate will be marked active immediately.
+        </p>
+        <form id="signCertForm" method="post" action="#">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Validity Period (days)</label>
+            <input type="number" id="signValidityDays" name="validity_days"
+                   value="365" min="1" max="3650" class="form-control" style="max-width:160px;" />
+            <div class="form-text">How long the signed certificate will be valid.</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x me-1"></i>Cancel
+        </button>
+        <button type="submit" form="signCertForm" class="btn btn-warning text-dark">
+          <i class="bi bi-pen me-1"></i>Sign Certificate
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const modalEl  = document.getElementById('signCertModal');
+  const modal    = new bootstrap.Modal(modalEl);
+  const formEl   = document.getElementById('signCertForm');
+  const domainEl = document.getElementById('signCertDomain');
+
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-sign-url]');
+    if (!btn) return;
+    formEl.action    = btn.dataset.signUrl;
+    domainEl.textContent = btn.dataset.signDomain;
+    document.getElementById('signValidityDays').value = 365;
+    modal.show();
+  });
+})();
+</script>
 {% endblock %}

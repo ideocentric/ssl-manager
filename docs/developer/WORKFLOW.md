@@ -1,4 +1,4 @@
-# SSL Manager — End-to-End Workflow
+3# SSL Manager — End-to-End Workflow
 
 This document walks through the complete certificate lifecycle from first login through to a fully verified, deployment-ready certificate bundle. All UI paths and CLI commands are included.
 

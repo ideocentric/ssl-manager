@@ -1,72 +1,398 @@
 {% extends "base.html" %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0"><i class="bi bi-people-fill me-2"></i>Users</h4>
-  <a href="{{ url_for('users.user_new') }}" class="btn btn-primary btn-sm">
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-people me-2"></i>Users</h2>
+  <button class="btn btn-primary" data-user-new>
     <i class="bi bi-person-plus me-1"></i>Add User
-  </a>
+  </button>
+</div>
+
+{% if users %}
+<div class="mb-3">
+  <div class="input-group">
+    <span class="input-group-text"><i class="bi bi-search text-secondary"></i></span>
+    <input type="search" id="userSearch" class="form-control"
+           placeholder="Search by username, email, role, or status…" autocomplete="off">
+    <span id="userSearchCount" class="input-group-text text-muted small"></span>
+  </div>
 </div>
 
 <div class="card shadow-sm">
-  <div class="table-responsive">
-    <table class="table table-hover mb-0">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-people me-2"></i>User Accounts</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+    <table class="table table-hover mb-0" id="userTable">
       <thead>
         <tr>
-          <th>Username</th>
-          <th>Email</th>
-          <th>Role</th>
-          <th>Status</th>
-          <th>Created</th>
-          <th></th>
+          <th class="sortable" data-col="0" style="cursor:pointer; white-space:nowrap;">
+            Username <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="1" style="cursor:pointer; white-space:nowrap;">
+            Email <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="2" style="cursor:pointer; white-space:nowrap;">
+            Role <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="3" style="cursor:pointer; white-space:nowrap;">
+            Status <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="sortable" data-col="4" style="cursor:pointer; white-space:nowrap;">
+            Created <i class="bi bi-arrow-down-up text-secondary ms-1 sort-icon"></i>
+          </th>
+          <th class="text-end">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for u in users %}
         <tr>
-          <td>
-            {{ u.username }}
+          <td class="align-middle text-muted fw-semibold" data-sort="{{ u.username }}"
+              data-search="{{ [
+                u.username,
+                u.email,
+                'superadmin' if u.is_superadmin else 'user',
+                'active' if u.active else 'inactive'
+              ] | join(' ') | lower }}">
+            <i class="bi bi-person-circle me-1 text-secondary"></i>{{ u.username }}
             {% if u.id == current_user.id %}
-            <span class="badge bg-info text-dark ms-1">you</span>
+            <span class="badge-status badge-pending ms-1">you</span>
             {% endif %}
           </td>
-          <td class="text-muted small">{{ u.email }}</td>
-          <td>
+          <td class="align-middle text-muted" data-sort="{{ u.email }}">
+            {{ u.email }}
+          </td>
+          <td class="align-middle text-muted"
+              data-sort="{{ '0' if u.is_superadmin else '1' }}">
             {% if u.is_superadmin %}
-            <span class="badge bg-warning text-dark">superadmin</span>
+            <span class="badge-status badge-valid">superadmin</span>
             {% else %}
-            <span class="badge bg-secondary">user</span>
+            <span class="badge-status badge-pending">user</span>
             {% endif %}
           </td>
-          <td>
+          <td class="align-middle text-muted"
+              data-sort="{{ '0' if u.active else '1' }}">
             {% if u.active %}
-            <span class="badge bg-success">active</span>
+            <span class="badge-status badge-valid">active</span>
             {% else %}
-            <span class="badge bg-danger">inactive</span>
+            <span class="badge-status badge-expired">inactive</span>
             {% endif %}
           </td>
-          <td class="text-muted small">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
-          <td class="text-end">
-            <a href="{{ url_for('users.user_edit', user_id=u.id) }}"
-               class="btn btn-secondary btn-sm me-1">
-              <i class="bi bi-pencil"></i>
-            </a>
+          <td class="align-middle text-muted"
+              data-sort="{{ u.created_at.strftime('%Y-%m-%d') }}">
+            {{ u.created_at.strftime('%Y-%m-%d') }}
+          </td>
+          <td class="align-middle text-end text-nowrap">
+            <button class="btn btn-sm btn-secondary me-1"
+                    data-user-edit="{{ url_for('users.user_update', user_id=u.id) }}"
+                    data-user-username="{{ u.username | e }}"
+                    data-user-email="{{ u.email | e }}"
+                    data-user-role="{{ u.role }}"
+                    data-user-active="{{ '1' if u.active else '0' }}">
+              <i class="bi bi-pencil me-1"></i>Edit
+            </button>
             {% if u.id != current_user.id %}
-            <form method="post" action="{{ url_for('users.user_delete', user_id=u.id) }}"
-                  class="d-inline"
-                  onsubmit="return confirm('Delete user {{ u.username }}?')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-danger btn-sm">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+            <button class="btn btn-sm btn-danger"
+                    data-confirm-delete="{{ url_for('users.user_delete', user_id=u.id) }}"
+                    data-confirm-message="Delete user {{ u.username | e }}?">
+              <i class="bi bi-trash"></i>
+            </button>
             {% endif %}
           </td>
         </tr>
-        {% else %}
-        <tr><td colspan="6" class="text-center text-muted py-4">No users found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-people display-4 text-muted mb-3 d-block"></i>
+    <h5 class="text-muted">No users found</h5>
+    <p class="text-muted mb-4">Add the first user to get started.</p>
+    <button class="btn btn-primary" data-user-new>
+      <i class="bi bi-person-plus me-1"></i>Add User
+    </button>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Add User modal ─────────────────────────────────────────── -->
+<div class="modal fade" id="userAddModal" tabindex="-1" aria-labelledby="userAddModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="userAddModalLabel">
+          <i class="bi bi-person-plus me-2"></i>Add User
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="userAddForm" method="post" action="{{ url_for('users.user_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+            <input id="add_username" name="username" type="text" class="form-control" required
+                   onblur="this.value=this.value.trim()" placeholder="e.g. jsmith" />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+            <input id="add_email" name="email" type="email" class="form-control" required
+                   onblur="this.value=this.value.trim()" placeholder="jsmith@example.com" />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Role</label>
+            <select id="add_role" name="role" class="form-select">
+              <option value="user" selected>user</option>
+              <option value="superadmin">superadmin</option>
+            </select>
+          </div>
+
+          <hr class="my-3" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Password</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
+            <input id="add_password" name="password" type="password" class="form-control" required minlength="8"
+                   placeholder="At least 8 characters" />
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Confirm Password <span class="text-danger">*</span></label>
+            <input id="add_confirm" name="confirm_password" type="password" class="form-control" required minlength="8"
+                   placeholder="Repeat password" />
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x me-1"></i>Cancel
+        </button>
+        <button type="submit" form="userAddForm" class="btn btn-primary">
+          <i class="bi bi-person-plus me-1"></i>Create User
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit User modal ────────────────────────────────────────── -->
+<div class="modal fade" id="userEditModal" tabindex="-1" aria-labelledby="userEditModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="userEditModalLabel">
+          <i class="bi bi-person-gear me-2"></i>Edit User: <span id="editModalUsername"></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Details form -->
+        <form id="userEditDetailsForm" method="post" action="#">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+            <input id="edit_username" name="username" type="text" class="form-control" required
+                   onblur="this.value=this.value.trim()" />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+            <input id="edit_email" name="email" type="email" class="form-control" required
+                   onblur="this.value=this.value.trim()" />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Role</label>
+            <select id="edit_role" name="role" class="form-select">
+              <option value="user">user</option>
+              <option value="superadmin">superadmin</option>
+            </select>
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Status</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="edit_active" name="active" value="1">
+              <label class="form-check-label" for="edit_active">Active</label>
+            </div>
+          </div>
+        </form>
+
+        <!-- Password change section -->
+        <hr class="my-4" />
+        <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Change Password</h6>
+        <p class="text-muted small mb-3">Leave blank to keep the current password.</p>
+
+        <form id="userEditPasswordForm" method="post" action="#">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" id="pw_username" name="username" value="">
+          <input type="hidden" id="pw_email"    name="email"    value="">
+          <input type="hidden" id="pw_role"     name="role"     value="">
+          <input type="hidden" id="pw_active"   name="active"   value="">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">New Password</label>
+            <input id="edit_password" name="password" type="password" class="form-control" minlength="8"
+                   placeholder="At least 8 characters" />
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Confirm Password</label>
+            <input id="edit_confirm" name="confirm_password" type="password" class="form-control" minlength="8"
+                   placeholder="Repeat new password" />
+          </div>
+          <button type="submit" form="userEditPasswordForm" class="btn btn-secondary mt-3">
+            <i class="bi bi-key me-1"></i>Update Password
+          </button>
+        </form>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x me-1"></i>Cancel
+        </button>
+        <button type="submit" form="userEditDetailsForm" class="btn btn-primary">
+          <i class="bi bi-floppy-fill me-1"></i>Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const addModal  = new bootstrap.Modal(document.getElementById('userAddModal'));
+  const editModal = new bootstrap.Modal(document.getElementById('userEditModal'));
+
+  const addForm    = document.getElementById('userAddForm');
+  const editDetails = document.getElementById('userEditDetailsForm');
+  const editPwForm  = document.getElementById('userEditPasswordForm');
+
+  const newUrl = '{{ url_for("users.user_new") }}';
+
+  function clearAdd() {
+    document.getElementById('add_username').value = '';
+    document.getElementById('add_email').value    = '';
+    document.getElementById('add_role').value     = 'user';
+    document.getElementById('add_password').value = '';
+    document.getElementById('add_confirm').value  = '';
+  }
+
+  // Keep password-form hidden fields in sync with the details form fields
+  function syncPwFields() {
+    document.getElementById('pw_username').value = document.getElementById('edit_username').value;
+    document.getElementById('pw_email').value    = document.getElementById('edit_email').value;
+    document.getElementById('pw_role').value     = document.getElementById('edit_role').value;
+    document.getElementById('pw_active').value   = document.getElementById('edit_active').checked ? '1' : '0';
+  }
+  ['edit_username', 'edit_email', 'edit_role'].forEach(id => {
+    document.getElementById(id).addEventListener('input', syncPwFields);
+  });
+  document.getElementById('edit_active').addEventListener('change', syncPwFields);
+
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-user-new]')) {
+      clearAdd();
+      addForm.action = newUrl;
+      addModal.show();
+      return;
+    }
+
+    const editBtn = e.target.closest('[data-user-edit]');
+    if (editBtn) {
+      const d = editBtn.dataset;
+      editDetails.action  = d.userEdit;
+      editPwForm.action   = d.userEdit;
+
+      document.getElementById('editModalUsername').textContent = d.userUsername;
+      document.getElementById('edit_username').value = d.userUsername;
+      document.getElementById('edit_email').value    = d.userEmail;
+      document.getElementById('edit_role').value     = d.userRole;
+      document.getElementById('edit_active').checked = d.userActive === '1';
+      document.getElementById('edit_password').value = '';
+      document.getElementById('edit_confirm').value  = '';
+
+      syncPwFields();
+      editModal.show();
+    }
+  });
+})();
+</script>
+
+{% if users %}
+<script>
+(function () {
+  const table   = document.getElementById('userTable');
+  const headers = table.querySelectorAll('th.sortable');
+  let   sortCol = 4;
+  let   sortAsc = false;
+
+  function sortTable(col, asc) {
+    const tbody = table.tBodies[0];
+    const rows  = Array.from(tbody.rows);
+    rows.sort((a, b) => {
+      const av = a.cells[col].dataset.sort || '';
+      const bv = b.cells[col].dataset.sort || '';
+      return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    rows.forEach(r => tbody.appendChild(r));
+
+    headers.forEach((th, i) => {
+      const icon = th.querySelector('.sort-icon');
+      if (i === col) {
+        icon.className = 'bi ms-1 sort-icon text-primary ' +
+                         (asc ? 'bi-arrow-up' : 'bi-arrow-down');
+      } else {
+        icon.className = 'bi bi-arrow-down-up text-secondary ms-1 sort-icon';
+      }
+    });
+  }
+
+  headers.forEach((th, i) => {
+    th.addEventListener('click', () => {
+      if (sortCol === i) { sortAsc = !sortAsc; }
+      else { sortCol = i; sortAsc = true; }
+      sortTable(sortCol, sortAsc);
+    });
+  });
+
+  const searchInput = document.getElementById('userSearch');
+  const countBadge  = document.getElementById('userSearchCount');
+  const totalRows   = table.tBodies[0].rows.length;
+
+  function updateCount(visible) {
+    countBadge.textContent = visible < totalRows
+      ? visible + ' of ' + totalRows
+      : totalRows + ' user' + (totalRows === 1 ? '' : 's');
+  }
+
+  function filterTable() {
+    const q     = searchInput.value.trim().toLowerCase();
+    const tbody = table.tBodies[0];
+    let   shown = 0;
+    Array.from(tbody.rows).forEach(row => {
+      const haystack = row.cells[0].dataset.search || '';
+      const match    = !q || haystack.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    updateCount(shown);
+  }
+
+  searchInput.addEventListener('input', filterTable);
+  sortTable(sortCol, sortAsc);
+  updateCount(totalRows);
+})();
+</script>
+{% endif %}
 {% endblock %}
