@@ -10,9 +10,10 @@ A Flask-based web application for managing SSL certificate lifecycle — from RS
 - **Named certificate profiles** — create multiple profiles (Name, key size, country, org name, etc.) and apply them as templates when generating new certificates; a default profile is pre-selected automatically
 - Generate RSA private keys (2048 or 4096-bit) and CSRs per domain
 - Support for Subject Alternative Names (SANs)
-- **Named certificate chains** — manage multiple independent intermediate/root CA sets, each with drag-to-reorder support; assign each chain to the certificates that use it (useful when transitioning between CA providers or intermediate generations)
+- **Named certificate chains** — manage multiple independent intermediate/root CA sets; use ▲ / ▼ buttons to set the order of intermediates; assign each chain to the certificates that use it (useful when transitioning between CA providers or intermediate generations)
+- **Internal Certificate Authority** — create self-signed root CAs entirely within the application; sign pending certificates directly from the CA detail page with a configurable validity period; download the CA certificate PEM for installation as a trusted root; multiple independent CAs supported
 - **Bundle import** — upload or paste a multi-cert PEM bundle (e.g. a CA-provided `.crt` file) to auto-populate a chain in one step
-- **Certificate list sort and search** — click column headers to sort by Domain, Status, Expiry, SANs, or Created; type in the search bar to filter in real time across domain, status, org name, country, email, dates, and SAN domains
+- **Certificate list sort, search, and pagination** — click column headers to sort by Domain, Status, Expiry, SANs, or Created; type in the search bar to filter in real time; select 10 / 20 / 50 / All rows per page
 - Upload signed certificates returned by your CA — via file upload or paste
 - **Renew / Rekey** — pre-populate a new CSR from an existing certificate to streamline annual renewals
 - Color-coded expiration tracking (green → yellow → red) on both certificate and chain detail views
@@ -67,7 +68,7 @@ Superadmins access the **Users** page from the navbar. From there you can:
 ## Certificate Workflow
 
 1. **Profiles** → create one or more named profiles with your org defaults (key size, country, org name, etc.); mark one as the default
-2. **Chains** → create one or more named chains; add your intermediate and root CA certs to each, or use **Import Bundle** to import a multi-cert PEM file in one step; drag entries to set their order
+2. **Chains** → create one or more named chains; add your intermediate and root CA certs to each, or use **Import Bundle** to import a multi-cert PEM file in one step; use the ▲ / ▼ buttons to set the order
 3. **New Certificate** → enter a domain (and optional SANs); select a profile to pre-fill subject fields; assign a chain; the app generates an RSA key and CSR automatically
 4. Download the `.csr` file and submit it to your Certificate Authority
 5. Once the CA returns a signed cert, upload the file or paste the PEM into the **Signed Certificate** section on the certificate detail page
@@ -386,7 +387,7 @@ The application implements multiple layers of defence:
 - PEM data validated by the `cryptography` library before storage
 
 ### CSRF protection
-Every state-changing form includes a server-generated session token. Requests without a valid token are rejected before any application logic runs. The AJAX reorder endpoint uses the `X-CSRFToken` request header.
+Every state-changing form includes a server-generated session token. Requests without a valid token are rejected before any application logic runs.
 
 ### HTTP security headers
 Applied to every response:
@@ -572,23 +573,26 @@ ssl-manager/
 │   │   ├── chains.py       # Chain and intermediate certificate management
 │   │   ├── profiles.py     # Certificate subject profile management
 │   │   ├── users.py        # User management (superadmin only)
-│   │   └── audit.py        # Audit log (superadmin only)
+│   │   ├── cas.py          # Internal CA management
+│   │   └── admin.py        # Audit log and DB check (superadmin only)
 │   ├── templates/
 │   │   ├── base.html               # Bootstrap 5 layout, navbar, flash messages
 │   │   ├── login.html
 │   │   ├── setup.html              # First-run admin account setup
 │   │   ├── users.html              # User list (superadmin only)
-│   │   ├── user_form.html          # Add / edit user
-│   │   ├── certificates.html       # Certificate list with sort, search, and expiry badges
+│   │   ├── certificates.html       # Certificate list with sort, search, pagination
 │   │   ├── cert_new.html           # New certificate / renew form
 │   │   ├── cert_detail.html        # Detail, signed cert upload, and downloads
 │   │   ├── profiles.html           # Profile list
-│   │   ├── profile_form.html       # Create / edit profile
 │   │   ├── chains.html             # Named chain list
 │   │   ├── chain_form.html         # Create / edit chain
-│   │   ├── chain_detail.html       # Chain intermediates with drag-to-reorder
+│   │   ├── chain_detail.html       # Chain intermediates with ▲ / ▼ reorder
 │   │   ├── chain_import.html       # Bulk PEM bundle import
-│   │   └── intermediate_form.html  # Add / edit individual chain certificate
+│   │   ├── intermediate_form.html  # Add / edit individual chain certificate
+│   │   ├── cas.html                # Internal CA list
+│   │   ├── ca_form.html            # Create CA
+│   │   ├── ca_detail.html          # CA detail — pending certificates, sign, download
+│   │   └── audit.html              # Audit log (searchable, sortable, paginated)
 │   └── static/
 │       └── …                       # CSS, JS, icons
 └── docs/
@@ -596,8 +600,8 @@ ssl-manager/
     ├── admin/
     │   ├── INSTALL.md              # Installation and deployment guide
     │   ├── REQUIREMENTS.md         # Hardware sizing and system requirements
-    │   ├── deploy-aws.md           # AWS EC2 Terraform deployment
-    │   └── deploy-azure.md         # Azure VM Terraform deployment
+    │   ├── DEPLOY-AWS.md           # AWS EC2 Terraform deployment
+    │   └── DEPLOY-AZURE.md         # Azure VM Terraform deployment
     ├── developer/WORKFLOW.md       # Developer workflow (Docker, tests, CA, exports)
     └── security/ADVISORY.md        # CVE and dependency security review
 ```

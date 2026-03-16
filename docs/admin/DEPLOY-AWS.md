@@ -88,6 +88,7 @@ Edit `terraform.tfvars` and set at minimum:
 
 - `admin_ssh_public_key` — contents of `~/.ssh/id_ed25519.pub`
 - `allowed_ssh_ips` — your current public IP (find it with `curl -s https://checkip.amazonaws.com`)
+- `timezone` — tz database name for the server clock, e.g. `"America/New_York"` (controls backup filenames, log timestamps, and the daily backup timer; defaults to `"UTC"`)
 
 ### 2. Initialise and apply
 
@@ -207,12 +208,7 @@ aws ec2 describe-volumes \
 # Encrypted column should show True
 ```
 
-Or from the instance itself:
-
-```bash
-# Each block device should show "crypto_LUKS" or similar
-lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT
-```
+> **Note:** AWS EBS encryption is applied at the hypervisor/storage layer and is transparent to the guest OS. Running `lsblk` inside the instance will not show any encryption indicator — the volume appears as a normal block device. The AWS CLI command above is the authoritative verification method.
 
 ---
 

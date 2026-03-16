@@ -38,6 +38,7 @@ This guide covers everything an end user needs: connecting to the application, s
 9. [Downloading Certificates](#9-downloading-certificates)
 10. [Renewing a Certificate](#10-renewing-a-certificate)
 11. [User Management](#11-user-management)
+12. [Audit Log](#12-audit-log)
 
 ---
 
@@ -231,7 +232,7 @@ From the **Chain Detail** page, click **Add Certificate**. Fill in:
 
 Click **Save**. Repeat for each certificate in the chain (typically an intermediate and a root).
 
-You can **drag and drop** entries on the Chain Detail page to reorder them if needed.
+Use the **▲ / ▼** chevron buttons on each row to reorder entries on the Chain Detail page.
 
 ### 5.3 Import a Bundle
 
@@ -438,6 +439,10 @@ The counter on the right of the search bar shows how many certificates match (e.
 - Type `2025-` to list certificates expiring or created in 2025.
 - Type `acme` to find all certificates tied to that organisation.
 
+### Rows per page
+
+Use the **10 / 20 / 50 / All** button group (top-right of the toolbar) to control how many certificates are shown at once. The default is 20. When more rows exist than the selected page size, a page navigation bar appears below the table.
+
 ---
 
 ## 9. Downloading Certificates
@@ -561,6 +566,36 @@ At least one active superadmin must always exist. The following are blocked when
 - Deactivating the last superadmin's account
 
 To transfer superadmin responsibilities, promote a second user to `superadmin` first, then make changes to the original account.
+
+---
+
+---
+
+## 12. Audit Log
+
+The **Audit Log** is available to **superadmin** accounts only. Navigate to **Audit Log** in the navbar.
+
+Every action taken in the application is recorded — logins, certificate creation, signing, downloads, user changes, and automated system events such as backups.
+
+### Searching
+
+Type in the search bar to filter log entries in real time across all columns (user, action, resource, result, and detail). Click the **✕** button or clear the search box to reset.
+
+### Sorting
+
+Click any underlined column header to sort by that column. Click again to reverse the direction.
+
+### Rows per page
+
+Use the **10 / 20 / 50 / All** button group to control how many entries are shown per page. The default is 20. Page navigation appears below the table when there are more entries than the current page size.
+
+### Result badges
+
+| Badge | Meaning |
+|---|---|
+| `success` | The action completed without errors |
+| `failure` | The action failed (detail column gives the reason) |
+| Other | Informational status specific to the action type |
 
 ---
 

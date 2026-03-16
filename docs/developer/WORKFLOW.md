@@ -87,14 +87,14 @@ backup-test-1  | [backup-test] Done. Next run in 1 hour.
 
 **Verify the audit log entry:**
 
-1. Log in as superadmin and open **Audit Log** in the navbar.
+1. Log in as superadmin and open **Audit Log** in the navbar. Use the **10 / 20 / 50 / All** selector to control how many entries are shown per page.
 2. The most recent entry should show:
    - **User:** `system`
    - **Action:** `backup` (with an archive icon)
    - **Resource:** `database`
    - **Result:** `success`
    - **Detail:** `file=ssl_manager_<timestamp>.db.gz size=<N>K days=7 pruned=0`
-3. System-initiated rows appear with a light blue background to distinguish them from user actions.
+3. System-initiated entries use the same badge styling as user actions — no special row background is applied.
 
 **Trigger an immediate backup without waiting for the hour:**
 
@@ -302,9 +302,9 @@ Open a chain by clicking its name. On the Chain Detail page, click **Add Certifi
 - **PEM Data** — paste the PEM-encoded certificate
 - **Order** — integer; order `1` is closest to the domain certificate, higher numbers ascend toward the root
 
-### Drag-to-reorder
+### Reordering
 
-On the Chain Detail page, drag entries up or down to change their order. The order numbers update automatically on save.
+On the Chain Detail page, use the **▲ / ▼** chevron buttons on each row to move entries up or down. Order numbers update immediately and are persisted automatically.
 
 ### Import Bundle
 
@@ -544,6 +544,10 @@ Type in the search bar above the table to filter rows in real time. The search m
 - All SAN domains
 
 A counter on the right side of the search bar shows **N of M certificates**, reflecting the number of rows currently visible versus the total.
+
+### Rows per page
+
+Use the **10 / 20 / 50 / All** button group (top-right of the toolbar) to control how many certificates are shown per page. The default is 20. A page navigation bar appears below the table when the total exceeds the current page size. Pagination is client-side — all records are loaded on page load and filtered/paginated in the browser.
 
 ---
 
@@ -871,12 +875,12 @@ User management is available to **superadmin** accounts only.
 
 ### Edit a user
 
-Click the pencil icon next to any user. You can change:
-- Username and email
-- Role (`superadmin` or `user`)
-- Active status (deactivating prevents login without deleting the account)
+Click the **Edit** button next to any user. The modal has two independent sections:
 
-Password changes are handled in the separate **Change Password** section on the same form — leave the password fields blank to keep the current password.
+- **Details** — username, email, role, and active status. Click **Save Changes** to apply.
+- **Change Password** — new password and confirmation. Click **Update Password** to apply. Leave these fields blank to keep the current password.
+
+Deactivating a user (unchecking **Active**) prevents login without deleting the account.
 
 ### Delete a user
 
