@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-plus-circle-fill me-2"></i>New Certificate Authority</h5>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info d-flex align-items-start">
+          <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+          <div>
+            This will generate a new RSA private key and a self-signed root CA certificate.
+            The CA name is used as the Common Name. Export the public certificate and install it
+            in the trust stores of any system that needs to trust certificates signed by this CA.
+          </div>
+        </div>
+
+        <form method="post" action="{{ url_for('cas.ca_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          {# Profile selector — pre-fill subject fields #}
+          {% if all_profiles|length > 1 %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold"><i class="bi bi-sliders me-1"></i>Apply Profile</label>
+            <div class="d-flex gap-2 align-items-center">
+              <select id="profileSelect" class="form-select" style="max-width:320px;">
+                {% for p in all_profiles %}
+                <option value="{{ p.id }}"
+                  data-key-size="{{ p.key_size }}"
+                  data-country="{{ p.country or '' }}"
+                  data-state="{{ p.state or '' }}"
+                  data-city="{{ p.city or '' }}"
+                  data-org-name="{{ p.org_name or '' }}"
+                  data-org-unit="{{ p.org_unit or '' }}"
+                  data-email="{{ p.email or '' }}"
+                  {% if p.id == default_profile.id %}selected{% endif %}>
+                  {{ p.name }}{% if p.is_default %} (default){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="applyProfileBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i>Apply
+              </button>
+            </div>
+            <div class="form-text">Applies profile subject fields below. CA Name and validity are independent.</div>
+          </div>
+          {% endif %}
+
+          <h6 class="text-muted text-uppercase mb-3 mt-2" style="font-size:0.75rem;letter-spacing:1px;">CA Identity</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CA Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required
+                   value="{{ form.name if form else '' }}"
+                   placeholder="My Internal Root CA" />
+            <div class="form-text">Used as the Common Name in the CA certificate. Must be unique.</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea name="description" class="form-control" rows="2"
+                      placeholder="Internal CA for signing lab certificates">{{ form.description if form else '' }}</textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Validity Period</label>
+            <select name="validity_days" class="form-select" style="max-width:280px;">
+              <option value="365">1 year (365 days)</option>
+              <option value="1095">3 years (1095 days)</option>
+              <option value="1825">5 years (1825 days)</option>
+              <option value="3650" selected>10 years (3650 days) — default</option>
+              <option value="7300">20 years (7300 days)</option>
+            </select>
+          </div>
+
+          <hr class="my-4" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Key &amp; Subject Settings</h6>
+          <p class="text-muted small">
+            Pre-filled from
+            {% if all_profiles|length > 1 %}
+            the selected profile. Use the <strong>Apply</strong> button above to reload from a different profile.
+            {% else %}
+            <a href="{{ url_for('profiles.profiles') }}">profile settings</a>.
+            {% endif %}
+            Override individual fields as needed.
+          </p>
+
+          {% set country_val  = form.country  if form else (default_profile.country  or '') %}
+          {% set state_val    = form.state    if form else (default_profile.state    or '') %}
+          {% set city_val     = form.city     if form else (default_profile.city     or '') %}
+          {% set org_name_val = form.org_name if form else (default_profile.org_name or '') %}
+          {% set org_unit_val = form.org_unit if form else (default_profile.org_unit or '') %}
+          {% set email_val    = form.email    if form else (default_profile.email    or '') %}
+
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Key Size</label>
+              <select name="key_size" id="f_key_size" class="form-select">
+                <option value="2048">2048 (RSA-2048)</option>
+                <option value="4096" selected>4096 (RSA-4096) — recommended</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Country <span class="text-muted">(2 chars)</span></label>
+              <input type="text" name="country" id="f_country" class="form-control" maxlength="2"
+                     value="{{ country_val }}" placeholder="US" />
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">State / Province</label>
+              <input type="text" name="state" id="f_state" class="form-control"
+                     value="{{ state_val }}" placeholder="California" />
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">City / Locality</label>
+              <input type="text" name="city" id="f_city" class="form-control"
+                     value="{{ city_val }}" placeholder="San Francisco" />
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Organization Name</label>
+              <input type="text" name="org_name" id="f_org_name" class="form-control"
+                     value="{{ org_name_val }}" placeholder="Acme Corp" />
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Organizational Unit</label>
+              <input type="text" name="org_unit" id="f_org_unit" class="form-control"
+                     value="{{ org_unit_val }}" placeholder="IT Department" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Email Address</label>
+              <input type="email" name="email" id="f_email" class="form-control"
+                     value="{{ email_val }}" placeholder="admin@example.com" />
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="bi bi-building-lock me-2"></i>Generate CA
+            </button>
+            <a href="{{ url_for('cas.cas') }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if all_profiles|length > 1 %}
+<script>
+(function () {
+  const sel = document.getElementById('profileSelect');
+  const applyBtn = document.getElementById('applyProfileBtn');
+
+  function applyProfile() {
+    const opt = sel.options[sel.selectedIndex];
+    const d = opt.dataset;
+    const ks = document.getElementById('f_key_size');
+    for (let i = 0; i < ks.options.length; i++) {
+      if (ks.options[i].value === d.keySize) { ks.selectedIndex = i; break; }
+    }
+    document.getElementById('f_country').value  = d.country;
+    document.getElementById('f_state').value    = d.state;
+    document.getElementById('f_city').value     = d.city;
+    document.getElementById('f_org_name').value = d.orgName;
+    document.getElementById('f_org_unit').value = d.orgUnit;
+    document.getElementById('f_email').value    = d.email;
+  }
+
+  applyBtn.addEventListener('click', applyProfile);
+})();
+</script>
+{% endif %}
+{% endblock %}

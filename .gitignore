@@ -139,3 +139,5 @@ instance/
 *.log
 
 .claude
+
+ssl-manager-theme

@@ -69,6 +69,7 @@ def chain_detail(chain_id):
     return render_template("chain_detail.html", chain=chain, intermediates=intermediates, cert_count=cert_count)
 
 
+
 @bp.route("/chains/<int:chain_id>/edit")
 @login_required
 def chain_edit(chain_id):

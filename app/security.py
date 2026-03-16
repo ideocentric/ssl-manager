@@ -143,8 +143,8 @@ def set_security_headers(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
-        "font-src 'self' cdn.jsdelivr.net data:; "
+        "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; "
+        "font-src 'self' cdn.jsdelivr.net fonts.gstatic.com data:; "
         "img-src 'self' data:; "
         "frame-ancestors 'none';"
     )

@@ -74,12 +74,11 @@
             <a href="{{ url_for('intermediate_edit', ic_id=ic.id) }}" class="btn btn-sm btn-primary me-1">
               <i class="bi bi-pencil me-1"></i>Edit
             </a>
-            <form action="{{ url_for('intermediate_delete', ic_id=ic.id) }}" method="post" class="d-inline"
-                  onsubmit="return confirm('Delete certificate \'{{ ic.name }}\'?')">
-              <button type="submit" class="btn btn-sm btn-danger">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+            <button class="btn btn-sm btn-danger"
+                    data-confirm-delete="{{ url_for('intermediate_delete', ic_id=ic.id) }}"
+                    data-confirm-message="Delete certificate {{ ic.name | e }}?">
+              <i class="bi bi-trash"></i>
+            </button>
           </td>
         </tr>
         {% endfor %}

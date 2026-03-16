@@ -3,23 +3,38 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2><i class="bi bi-file-earmark-lock2 me-2"></i>SSL Certificates</h2>
-  <a href="{{ url_for('certificates.certificate_new') }}" class="btn btn-primary">
-    <i class="bi bi-plus-lg me-1"></i>New Certificate
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('certificates.certificate_import_csr') }}" class="btn btn-outline-secondary">
+      <i class="bi bi-file-earmark-arrow-up me-1"></i>Import CSR
+    </a>
+    <a href="{{ url_for('certificates.certificate_new') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>New Certificate
+    </a>
+  </div>
 </div>
 
 {% if certs %}
-<div class="mb-3">
-  <div class="input-group">
-    <span class="input-group-text bg-white"><i class="bi bi-search text-secondary"></i></span>
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <div class="input-group flex-grow-1" style="min-width:200px; max-width:480px;">
+    <span class="input-group-text"><i class="bi bi-search text-secondary"></i></span>
     <input type="search" id="certSearch" class="form-control"
            placeholder="Search by domain, status, org, expiry date…" autocomplete="off">
-    <span id="certSearchCount" class="input-group-text bg-white text-muted small"></span>
+    <span id="certSearchCount" class="input-group-text text-muted small"></span>
+  </div>
+  <div class="btn-group btn-group-sm" role="group" aria-label="Rows per page">
+    <button type="button" class="btn btn-secondary" data-cert-per-page="10">10</button>
+    <button type="button" class="btn btn-primary"   data-cert-per-page="20">20</button>
+    <button type="button" class="btn btn-secondary" data-cert-per-page="50">50</button>
+    <button type="button" class="btn btn-secondary" data-cert-per-page="0">All</button>
   </div>
 </div>
 
 <div class="card shadow-sm">
-  <div class="card-body p-0">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="bi bi-file-earmark-lock2 me-2"></i>SSL Certificates</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
     <table class="table table-hover mb-0" id="certTable">
       <thead>
         <tr>
@@ -45,7 +60,7 @@
         {% for cert in certs %}
         <tr>
           {# col 0: domain — data-search aggregates all searchable text for this row #}
-          <td class="align-middle fw-semibold" data-sort="{{ cert.domain }}"
+          <td class="align-middle text-muted" data-sort="{{ cert.domain }}"
               data-search="{{ [
                 cert.domain,
                 cert.status_label,
@@ -64,34 +79,34 @@
           <td class="align-middle"
               data-sort="{{ '0' if label == 'active' else ('1' if label == 'pending_signing' else '2') }}">
             {% if label == 'active' %}
-              <span class="badge bg-success">Active</span>
+              <span class="badge-status badge-valid">Active</span>
             {% elif label == 'expired' %}
-              <span class="badge bg-danger">Expired</span>
+              <span class="badge-status badge-expired">Expired</span>
             {% else %}
-              <span class="badge bg-warning text-dark">Pending Signing</span>
+              <span class="badge-status badge-pending">Pending Signing</span>
             {% endif %}
           </td>
 
           {# col 2: expiry — ISO date string for natural sort; far-future value for no date #}
-          <td class="align-middle"
+          <td class="align-middle text-muted"
               data-sort="{{ cert.expiry_date.strftime('%Y-%m-%d') if cert.expiry_date else '9999-99-99' }}">
             {% if cert.expiry_date %}
               {% set days = cert.days_until_expiry %}
               {% if days is not none %}
                 {% if days < 0 %}
-                  <span class="text-danger fw-semibold">
+                  <span>
                     <i class="bi bi-x-circle me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d') }} (Expired)
                   </span>
                 {% elif days < 30 %}
-                  <span class="text-danger">
+                  <span>
                     <i class="bi bi-exclamation-triangle me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d') }} ({{ days }}d)
                   </span>
                 {% elif days < 90 %}
-                  <span class="text-warning">
+                  <span>
                     <i class="bi bi-clock me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d') }} ({{ days }}d)
                   </span>
                 {% else %}
-                  <span class="text-success">
+                  <span>
                     <i class="bi bi-check-circle me-1"></i>{{ cert.expiry_date.strftime('%Y-%m-%d') }} ({{ days }}d)
                   </span>
                 {% endif %}
@@ -105,7 +120,7 @@
 
           {# col 3: SAN count — numeric sort #}
           {% set san_count = cert.san_list | length %}
-          <td class="align-middle" data-sort="{{ '%05d' % san_count }}">
+          <td class="align-middle text-muted" data-sort="{{ '%05d' % san_count }}">
             {% if san_count > 0 %}
               <span class="badge bg-secondary">{{ san_count }}</span>
             {% else %}
@@ -114,34 +129,38 @@
           </td>
 
           {# col 4: created date — ISO for natural sort #}
-          <td class="align-middle text-muted small"
+          <td class="align-middle text-muted"
               data-sort="{{ cert.created_at.strftime('%Y-%m-%d') }}">
             {{ cert.created_at.strftime('%Y-%m-%d') }}
           </td>
 
           <td class="align-middle text-end text-nowrap">
-            <a href="{{ url_for('certificates.certificate_detail', cert_id=cert.id) }}" class="btn btn-sm btn-primary me-1">
+            <button class="btn btn-sm btn-primary me-1"
+                    data-cert-modal="{{ url_for('certificates.certificate_detail_modal', cert_id=cert.id) }}"
+                    data-cert-title="{{ cert.domain }}">
               <i class="bi bi-eye me-1"></i>View
-            </a>
+            </button>
             {% if cert.status == 'pending_signing' %}
             <a href="{{ url_for('certificates.download_csr', cert_id=cert.id) }}" class="btn btn-sm btn-secondary me-1">
               <i class="bi bi-download me-1"></i>CSR
             </a>
             {% endif %}
-            <form action="{{ url_for('certificates.certificate_delete', cert_id=cert.id) }}" method="post" class="d-inline"
-                  onsubmit="return confirm('Delete certificate for {{ cert.domain }}?')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-sm btn-danger">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+            <button class="btn btn-sm btn-danger"
+                    data-confirm-delete="{{ url_for('certificates.certificate_delete', cert_id=cert.id) }}"
+                    data-confirm-message="Delete certificate for {{ cert.domain | e }}?">
+              <i class="bi bi-trash"></i>
+            </button>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
+<nav id="certPagination" class="mt-3" style="display:none;" aria-label="Certificate pages">
+  <ul class="pagination pagination-sm justify-content-center mb-0"></ul>
+</nav>
 {% else %}
 <div class="card shadow-sm">
   <div class="card-body text-center py-5">
@@ -154,81 +173,184 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Certificate detail modal -->
+<div class="modal fade" id="certDetailModal" tabindex="-1" aria-labelledby="certDetailModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="certDetailModalLabel">
+          <i class="bi bi-file-earmark-lock2 me-2"></i><span id="certDetailModalDomain"></span>
+        </h5>
+        <div class="ms-auto d-flex gap-2 align-items-center">
+          <a id="certDetailFullPageLink" href="#" class="btn btn-ghost btn-sm">
+            <i class="bi bi-arrow-up-right-square me-1"></i>Full page
+          </a>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+      <div class="modal-body" id="certDetailModalBody">
+        <div class="text-center py-5 text-muted">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+          Loading…
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 {% if certs %}
 <script>
 (function () {
-  const table   = document.getElementById('certTable');
-  const headers = table.querySelectorAll('th.sortable');
-  let   sortCol = 5;   // default: Created
-  let   sortAsc = false; // newest first
+  const table      = document.getElementById('certTable');
+  const headers    = table.querySelectorAll('th.sortable');
+  const searchInput = document.getElementById('certSearch');
+  const countBadge  = document.getElementById('certSearchCount');
+  const pagNav      = document.getElementById('certPagination');
+  const pagUl       = pagNav.querySelector('ul');
+
+  let sortCol    = 5;     // default: Created
+  let sortAsc    = false; // newest first
+  let currentPage = 1;
+  let rowsPerPage = 20;   // default
+
+  const totalRows = table.tBodies[0].rows.length;
+
+  function allRows() {
+    return Array.from(table.tBodies[0].rows);
+  }
 
   function sortTable(col, asc) {
     const tbody = table.tBodies[0];
-    const rows  = Array.from(tbody.rows);
+    const rows  = allRows();
     rows.sort((a, b) => {
       const av = a.cells[col].dataset.sort || '';
       const bv = b.cells[col].dataset.sort || '';
       return asc ? av.localeCompare(bv) : bv.localeCompare(av);
     });
     rows.forEach(r => tbody.appendChild(r));
-
-    // Update header icons
     headers.forEach((th, i) => {
       const icon = th.querySelector('.sort-icon');
-      if (i === col) {
-        icon.className = 'bi ms-1 sort-icon text-primary ' +
-                         (asc ? 'bi-arrow-up' : 'bi-arrow-down');
-      } else {
-        icon.className = 'bi bi-arrow-down-up text-secondary ms-1 sort-icon';
-      }
+      icon.className = i === col
+        ? 'bi ms-1 sort-icon text-primary ' + (asc ? 'bi-arrow-up' : 'bi-arrow-down')
+        : 'bi bi-arrow-down-up text-secondary ms-1 sort-icon';
     });
+  }
+
+  function filteredRows() {
+    const q = searchInput.value.trim().toLowerCase();
+    return allRows().filter(row => {
+      const haystack = row.cells[0].dataset.search || '';
+      return !q || haystack.includes(q);
+    });
+  }
+
+  function render() {
+    const matched = filteredRows();
+    const total   = matched.length;
+    const pages   = rowsPerPage === 0 ? 1 : Math.ceil(total / rowsPerPage);
+    if (currentPage > pages) currentPage = pages || 1;
+
+    const start = rowsPerPage === 0 ? 0 : (currentPage - 1) * rowsPerPage;
+    const end   = rowsPerPage === 0 ? total : start + rowsPerPage;
+
+    // Show/hide rows
+    allRows().forEach(r => { r.style.display = 'none'; });
+    matched.forEach((r, i) => { r.style.display = (i >= start && i < end) ? '' : 'none'; });
+
+    // Count badge
+    const q = searchInput.value.trim();
+    countBadge.textContent = q && total < totalRows
+      ? total + ' of ' + totalRows
+      : totalRows + ' certificate' + (totalRows === 1 ? '' : 's');
+
+    // Pagination nav
+    if (pages <= 1) {
+      pagNav.style.display = 'none';
+      return;
+    }
+    pagNav.style.display = '';
+    const range = 2;
+    let html = `<li class="page-item ${currentPage <= 1 ? 'disabled' : ''}">
+      <a class="page-link" href="#" data-cert-page="${currentPage - 1}">Previous</a></li>`;
+    for (let p = 1; p <= pages; p++) {
+      if (p === 1 || p === pages || (p >= currentPage - range && p <= currentPage + range)) {
+        html += `<li class="page-item ${p === currentPage ? 'active' : ''}">
+          <a class="page-link" href="#" data-cert-page="${p}">${p}</a></li>`;
+      } else if (p === currentPage - range - 1 || p === currentPage + range + 1) {
+        html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+      }
+    }
+    html += `<li class="page-item ${currentPage >= pages ? 'disabled' : ''}">
+      <a class="page-link" href="#" data-cert-page="${currentPage + 1}">Next</a></li>`;
+    pagUl.innerHTML = html;
   }
 
   headers.forEach((th, i) => {
     th.addEventListener('click', () => {
-      if (sortCol === i) {
-        sortAsc = !sortAsc;
-      } else {
-        sortCol = i;
-        sortAsc = true;
-      }
+      if (sortCol === i) { sortAsc = !sortAsc; } else { sortCol = i; sortAsc = true; }
       sortTable(sortCol, sortAsc);
+      render();
     });
   });
 
-  // Search
-  const searchInput = document.getElementById('certSearch');
-  const countBadge  = document.getElementById('certSearchCount');
-  const totalRows   = table.tBodies[0].rows.length;
+  searchInput.addEventListener('input', () => { currentPage = 1; render(); });
 
-  function updateCount(visible) {
-    countBadge.textContent = visible < totalRows
-      ? visible + ' of ' + totalRows
-      : totalRows + ' certificate' + (totalRows === 1 ? '' : 's');
-  }
-
-  function filterTable() {
-    const q     = searchInput.value.trim().toLowerCase();
-    const tbody = table.tBodies[0];
-    let   shown = 0;
-    Array.from(tbody.rows).forEach(row => {
-      const haystack = row.cells[0].dataset.search || '';
-      const match    = !q || haystack.includes(q);
-      row.style.display = match ? '' : 'none';
-      if (match) shown++;
+  document.querySelectorAll('[data-cert-per-page]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rowsPerPage = parseInt(btn.dataset.certPerPage);
+      currentPage = 1;
+      document.querySelectorAll('[data-cert-per-page]').forEach(b => {
+        b.classList.toggle('btn-primary',   b === btn);
+        b.classList.toggle('btn-secondary', b !== btn);
+      });
+      render();
     });
-    updateCount(shown);
-  }
+  });
 
-  searchInput.addEventListener('input', filterTable);
+  pagNav.addEventListener('click', e => {
+    const link = e.target.closest('[data-cert-page]');
+    if (!link) return;
+    e.preventDefault();
+    const p      = parseInt(link.dataset.certPage);
+    const pages  = rowsPerPage === 0 ? 1 : Math.ceil(filteredRows().length / rowsPerPage);
+    if (p >= 1 && p <= pages) { currentPage = p; render(); }
+  });
 
-  // Apply default sort then update count on load
   sortTable(sortCol, sortAsc);
-  updateCount(totalRows);
+  render();
 })();
 </script>
 {% endif %}
+
+<script>
+(function () {
+  const modal     = new bootstrap.Modal(document.getElementById('certDetailModal'));
+  const modalBody = document.getElementById('certDetailModalBody');
+  const modalTitle = document.getElementById('certDetailModalDomain');
+  const fullPageLink = document.getElementById('certDetailFullPageLink');
+
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-cert-modal]');
+    if (!btn) return;
+
+    const url = btn.dataset.certModal;
+    const title = btn.dataset.certTitle;
+
+    modalTitle.textContent = title;
+    fullPageLink.href = url.replace('/modal', '');
+    modalBody.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading…</div>';
+
+    modal.show();
+
+    fetch(url, { credentials: 'same-origin' })
+      .then(r => r.text())
+      .then(html => { modalBody.innerHTML = html; })
+      .catch(() => { modalBody.innerHTML = '<div class="alert alert-danger m-3">Failed to load certificate details.</div>'; });
+  });
+})();
+</script>
 {% endblock %}

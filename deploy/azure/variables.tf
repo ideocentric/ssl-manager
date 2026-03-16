@@ -17,7 +17,16 @@ variable "location" {
 }
 
 variable "vm_size" {
-  description = "Azure VM SKU. B1s (1 vCPU / 1 GB) is the minimum; B1ms (1 vCPU / 2 GB) is recommended."
+  description = <<-EOT
+    Azure VM SKU.
+      Standard_B1ms (1 vCPU / 2 GB) — recommended default
+      Standard_B1s  (1 vCPU / 1 GB) — minimum
+      Standard_B2s  (2 vCPU / 4 GB) — recommended for CA-heavy deployments
+
+    Note: The CA module generates RSA-4096 keys on demand. B1ms completes
+    this in ~2-4 seconds on a burstable core, well within the 120-second
+    gunicorn worker timeout. B2s reduces generation time to ~1-2 seconds.
+  EOT
   type        = string
   default     = "Standard_B1ms"
 }
@@ -52,7 +61,7 @@ variable "allowed_ssh_ips" {
 }
 
 variable "os_disk_size_gb" {
-  description = "OS disk size in GB. 30 GB is sufficient; increase if log retention will be long."
+  description = "OS disk size in GB. 30 GB is sufficient for <1000 certificates and CAs; increase if log retention will be long."
   type        = number
   default     = 30
 }

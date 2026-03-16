@@ -67,15 +67,15 @@ def db_integrity_check():
 @superadmin_required
 def audit_log_view():
     """GET /audit — Paginated, searchable, sortable audit log (superadmin only)."""
-    valid_per_page = {20, 50, 100}
+    valid_per_page = {10, 20, 50, 0}  # 0 = all
     if "per_page" in request.args:
         per_page = request.args.get("per_page", type=int)
         if per_page in valid_per_page:
             session["audit_per_page"] = per_page
         else:
-            per_page = session.get("audit_per_page", 50)
+            per_page = session.get("audit_per_page", 20)
     else:
-        per_page = session.get("audit_per_page", 50)
+        per_page = session.get("audit_per_page", 20)
 
     sortable_columns = {
         "timestamp": AuditLog.timestamp,
@@ -115,9 +115,15 @@ def audit_log_view():
         )
 
     page = request.args.get("page", 1, type=int)
-    pagination = query.order_by(order_expr).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
+    if per_page == 0:
+        count = query.count()
+        pagination = query.order_by(order_expr).paginate(
+            page=1, per_page=max(count, 1), error_out=False
+        )
+    else:
+        pagination = query.order_by(order_expr).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
     return render_template(
         "audit.html",
         entries=pagination.items,

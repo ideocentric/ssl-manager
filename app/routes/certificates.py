@@ -27,7 +27,7 @@ from ..crypto import (
     parse_cert_expiry,
 )
 from ..extensions import db
-from ..models import Certificate, CertChain, Settings
+from ..models import Certificate, CertChain, CertificateAuthority, Settings
 from ..security import _audit
 from ..validators import (
     _clean,
@@ -158,7 +158,19 @@ def certificate_detail(cert_id):
     cert = db.get_or_404(Certificate, cert_id)
     intermediates = get_chain_intermediates(cert.chain_id)
     chains = CertChain.query.order_by(CertChain.name.asc()).all()
-    return render_template("cert_detail.html", cert=cert, intermediates=intermediates, chains=chains)
+    cas = CertificateAuthority.query.order_by(CertificateAuthority.name.asc()).all()
+    return render_template("cert_detail.html", cert=cert, intermediates=intermediates, chains=chains, cas=cas)
+
+
+@bp.route("/certificates/<int:cert_id>/modal")
+@login_required
+def certificate_detail_modal(cert_id):
+    """GET /certificates/<cert_id>/modal — Partial for the detail modal."""
+    cert = db.get_or_404(Certificate, cert_id)
+    intermediates = get_chain_intermediates(cert.chain_id)
+    chains = CertChain.query.order_by(CertChain.name.asc()).all()
+    cas = CertificateAuthority.query.order_by(CertificateAuthority.name.asc()).all()
+    return render_template("cert_detail_modal.html", cert=cert, intermediates=intermediates, chains=chains, cas=cas)
 
 
 @bp.route("/certificates/<int:cert_id>/set-chain", methods=["POST"])
@@ -212,6 +224,65 @@ def certificate_upload(cert_id):
     _audit("certificate_signed", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     flash("Signed certificate uploaded successfully.", "success")
     return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
+
+
+@bp.route("/certificates/import-csr", methods=["GET", "POST"])
+@login_required
+def certificate_import_csr():
+    """GET/POST /certificates/import-csr — Import an external CSR into the database."""
+    chains = CertChain.query.order_by(CertChain.name.asc()).all()
+    if request.method == "POST":
+        csr_raw = ""
+        uploaded = request.files.get("csr_file")
+        if uploaded and uploaded.filename:
+            try:
+                csr_raw = uploaded.read().decode("utf-8", errors="replace").strip()
+            except Exception as e:
+                flash(f"Could not read uploaded file: {e}", "error")
+                return redirect(url_for("certificates.certificate_import_csr"))
+        if not csr_raw:
+            csr_raw = request.form.get("csr_pem", "").strip()
+
+        if not csr_raw:
+            flash("No CSR provided.", "error")
+            return redirect(url_for("certificates.certificate_import_csr"))
+
+        try:
+            from cryptography import x509 as _x509
+            csr_obj = _x509.load_pem_x509_csr(csr_raw.encode())
+            from cryptography.x509.oid import NameOID as _NameOID
+            cn_attrs = csr_obj.subject.get_attributes_for_oid(_NameOID.COMMON_NAME)
+            domain = cn_attrs[0].value if cn_attrs else ""
+        except Exception as e:
+            flash(f"Invalid CSR PEM: {e}", "error")
+            return redirect(url_for("certificates.certificate_import_csr"))
+
+        if not domain:
+            domain = _clean(request.form.get("domain", ""), 253)
+        if not domain:
+            flash("Could not determine domain from CSR Common Name.", "error")
+            return redirect(url_for("certificates.certificate_import_csr"))
+
+        try:
+            chain_id = int(request.form.get("chain_id", "")) or None
+        except (ValueError, TypeError):
+            chain_id = None
+
+        cert = Certificate(
+            domain=domain,
+            csr_pem=csr_raw,
+            status="pending_signing",
+            key_size=0,  # no private key managed here
+        )
+        if chain_id:
+            cert.chain_id = chain_id
+        db.session.add(cert)
+        db.session.commit()
+        _audit("csr_import", "certificate", cert.id, "success", f"domain={domain!r}")
+        flash(f"CSR for {domain} imported successfully.", "success")
+        return redirect(url_for("certificates.certificate_detail", cert_id=cert.id))
+
+    return render_template("cert_import_csr.html", chains=chains)
 
 
 @bp.route("/certificates/<int:cert_id>/delete", methods=["POST"])
@@ -336,6 +407,19 @@ def download_p7b(cert_id):
     _audit("download_p7b", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(BytesIO(p7b_bytes), mimetype="application/x-pkcs7-certificates",
                      as_attachment=True, download_name=f"{cert.safe_domain}.p7b")
+
+
+@bp.route("/certificates/<int:cert_id>/download/cert-pem")
+@login_required
+def download_cert_pem(cert_id):
+    """GET — Download the signed certificate only as a PEM file."""
+    cert = db.get_or_404(Certificate, cert_id)
+    if not cert.signed_cert_pem:
+        flash("Certificate not yet signed.", "error")
+        return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
+    _audit("download_cert_pem", "certificate", cert_id, "success", f"domain={cert.domain!r}")
+    return send_file(BytesIO(cert.signed_cert_pem.encode()), mimetype="application/x-pem-file",
+                     as_attachment=True, download_name=f"{cert.safe_domain}.pem")
 
 
 @bp.route("/certificates/<int:cert_id>/download/der")
