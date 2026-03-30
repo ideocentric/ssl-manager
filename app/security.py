@@ -9,10 +9,11 @@
 
 import os
 import secrets
+import time
 from functools import wraps
 
 from flask import abort, current_app, flash, redirect, request, session, url_for
-from flask_login import current_user, login_required
+from flask_login import current_user, login_required, logout_user
 
 from .extensions import db
 from .models import AuditLog, User
@@ -110,14 +111,30 @@ def superadmin_required(f):
 # Request hooks (registered on the app in app/__init__.py)
 # ---------------------------------------------------------------------------
 
+IDLE_TIMEOUT = 15 * 60  # seconds
+
+
 def security_checks():
-    """First-run redirect and CSRF enforcement."""
+    """First-run redirect, idle session timeout, and CSRF enforcement."""
     if request.endpoint == "static":
         return
 
     if request.endpoint not in (None, "auth.setup", "auth.login", "auth.logout"):
         if User.query.count() == 0:
             return redirect(url_for("auth.setup"))
+
+    # Idle session timeout — enforced server-side on every authenticated request
+    if current_user.is_authenticated:
+        now  = time.time()
+        last = session.get("last_activity")
+        if last is not None and (now - last) > IDLE_TIMEOUT:
+            _audit("session_timeout", "user", current_user.id, "success",
+                   f"idle {int(now - last)}s")
+            logout_user()
+            session.clear()
+            flash("Your session expired due to inactivity. Please log in again.", "warning")
+            return redirect(url_for("auth.login"))
+        session["last_activity"] = now
 
     if not current_app.testing and request.method in ("POST", "PUT", "PATCH", "DELETE"):
         session_token = session.get("csrf_token")
