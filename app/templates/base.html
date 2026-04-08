@@ -240,6 +240,29 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 {% if current_user.is_authenticated %}
+<!-- Session idle timeout modal -->
+<div class="modal fade" id="sessionTimeoutModal" tabindex="-1"
+     aria-labelledby="sessionTimeoutModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sessionTimeoutModalLabel">
+          <i class="bi bi-clock-history me-2" style="color:var(--bs-warning);"></i>Session Expiring
+        </h5>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">Your session will expire in <strong><span id="sessionTimeoutCountdown"></span> seconds</strong> due to inactivity.</p>
+        <p class="mt-2 mb-0 small" style="color:rgba(var(--bs-body-color-rgb),0.55);">Click <em>Stay logged in</em> to continue your session.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="sessionStayBtn">
+          <i class="bi bi-arrow-clockwise me-1"></i>Stay logged in
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Shared delete-confirmation modal (triggered by [data-confirm-delete] buttons) -->
 <div class="modal fade" id="confirmDeleteModal" tabindex="-1"
      aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
@@ -291,6 +314,54 @@
     formEl.action = url;
     modal.show();
   });
+})();
+</script>
+<script>
+(function () {
+  const TIMEOUT_MS = 15 * 60 * 1000;  /* 15 minutes */
+  const WARNING_MS =  2 * 60 * 1000;  /* warn 2 minutes before expiry */
+
+  const modalEl  = document.getElementById('sessionTimeoutModal');
+  const modal    = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+  const countEl  = document.getElementById('sessionTimeoutCountdown');
+  const stayBtn  = document.getElementById('sessionStayBtn');
+
+  let idleTimer, warnTimer, countdownInterval, warnShown = false;
+
+  function doLogout() {
+    window.location.href = '{{ url_for("auth.logout") }}';
+  }
+
+  function showWarning() {
+    warnShown = true;
+    let secs = Math.floor(WARNING_MS / 1000);
+    countEl.textContent = secs;
+    countdownInterval = setInterval(function () {
+      secs -= 1;
+      countEl.textContent = secs;
+      if (secs <= 0) clearInterval(countdownInterval);
+    }, 1000);
+    modal.show();
+    warnTimer = setTimeout(doLogout, WARNING_MS);
+  }
+
+  function resetTimer() {
+    clearTimeout(idleTimer);
+    clearTimeout(warnTimer);
+    clearInterval(countdownInterval);
+    if (warnShown) {
+      warnShown = false;
+      modal.hide();
+    }
+    idleTimer = setTimeout(showWarning, TIMEOUT_MS - WARNING_MS);
+  }
+
+  stayBtn.addEventListener('click', resetTimer);
+  ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(function (evt) {
+    document.addEventListener(evt, resetTimer, { passive: true });
+  });
+
+  resetTimer();
 })();
 </script>
 {% endif %}

@@ -1,7 +1,7 @@
 # Security Advisory
 
 **Project:** SSL Manager
-**Assessed:** 2026-03-12
+**Assessed:** 2026-03-30
 **Assessed by:** Matt Comeione / ideocentric
 
 This document records the CVE and security advisory review performed against the
@@ -13,7 +13,7 @@ project dependencies declared in `requirements.txt`.
 
 | Package | Version (before) | Version (after) | CVEs Found | Highest Severity | Action Taken |
 |---|---|---|---|---|---|
-| cryptography | 42.0.8 | **46.0.5** | 3 | High (CVSS 8.2) | Upgraded |
+| cryptography | 42.0.8 | **46.0.6** | 4 | High (CVSS 8.2) | Upgraded |
 | Flask | 3.0.3 | **3.1.3** | 1 | Low (CVSS 2.3) | Upgraded |
 | gunicorn | 22.0.0 | **23.0.0** | 0 | N/A | Upgraded (defence-in-depth) |
 | Flask-SQLAlchemy | 3.1.1 | 3.1.1 | 0 | N/A | No change required |
@@ -24,7 +24,7 @@ project dependencies declared in `requirements.txt`.
 
 ## Findings by Package
 
-### cryptography 42.0.8 — 3 Active CVEs (Upgraded to 46.0.5)
+### cryptography 42.0.8 — 4 Active CVEs (Upgraded to 46.0.6)
 
 #### CVE-2024-6119 / GHSA-h4gh-qq45-vh27 — High
 
@@ -58,6 +58,14 @@ project dependencies declared in `requirements.txt`.
 - **Fixed in:** cryptography 46.0.5
 - **References:**
   - https://osv.dev/vulnerability/GHSA-r6ph-v2qm-q3c2
+
+#### CVE-2025-61727 — Low
+
+- **Description:** Low-impact vulnerability in cryptography < 46.0.6.
+- **Affected versions:** cryptography < 46.0.6
+- **Fixed in:** cryptography 46.0.6
+- **References:**
+  - https://nvd.nist.gov/vuln/detail/CVE-2025-61727
 
 ---
 
