@@ -171,10 +171,20 @@ do_upgrade() {
 # ---------------------------------------------------------------------------
 install_packages() {
     info "Installing system packages via dnf…"
-    # Enable EPEL for any packages not in base RHEL repos
-    if ! rpm -q epel-release &>/dev/null; then
-        dnf install -y epel-release
+
+    # EPEL is only needed on CentOS/Rocky/AlmaLinux — all required packages
+    # (python3, nginx, policycoreutils-python-utils) are in RHEL 9 AppStream/BaseOS.
+    # On registered RHEL, 'epel-release' is not in any default repo; install it
+    # via the Fedora RPM URL only if the distro is not plain RHEL.
+    # shellcheck source=/dev/null
+    source /etc/os-release
+    if [[ "${ID}" != "rhel" ]]; then
+        if ! rpm -q epel-release &>/dev/null; then
+            info "Enabling EPEL…"
+            dnf install -y epel-release
+        fi
     fi
+
     dnf install -y \
         python3 python3-pip python3-devel \
         openssl gcc \
@@ -384,6 +394,8 @@ EOF
 }
 
 configure_selinux() {
+    local port="$1"
+
     if ! selinux_active; then
         info "SELinux is disabled — skipping SELinux configuration."
         return
@@ -392,27 +404,38 @@ configure_selinux() {
     info "Configuring SELinux…"
 
     if ! command -v semanage &>/dev/null; then
-        # policycoreutils-python-utils should have been installed by install_packages,
-        # but guard against partial installs
         warn "semanage not found. Attempting to install policycoreutils-python-utils…"
         dnf install -y policycoreutils-python-utils || \
             error "Could not install policycoreutils-python-utils. SELinux configuration incomplete."
     fi
 
+    # nginx can only bind to ports listed under http_port_t.
+    # Port 5001 (and any non-standard port) must be added explicitly.
+    info "SELinux: allowing nginx to bind to port ${port}…"
+    if ! semanage port -l | grep -qP "http_port_t\s+tcp.*\b${port}\b"; then
+        if semanage port -a -t http_port_t -p tcp "${port}" 2>/dev/null; then
+            info "SELinux: port ${port} added to http_port_t."
+        else
+            # Port may already be defined under a different type — modify it
+            semanage port -m -t http_port_t -p tcp "${port}" 2>/dev/null || \
+                warn "SELinux: could not add port ${port} to http_port_t — nginx may fail to bind."
+        fi
+    else
+        info "SELinux: port ${port} already permitted for http_port_t."
+    fi
+
     # Allow nginx (httpd_t domain) to connect to the gunicorn Unix socket.
     # The socket lives in /run/ssl-manager/ (a RuntimeDirectory).
-    # Setting httpd_var_run_t on that path lets nginx access the socket
-    # without a broad boolean like httpd_can_network_connect.
+    # Setting httpd_var_run_t on that path lets nginx access the socket.
     info "SELinux: setting httpd_var_run_t context on /run/ssl-manager/…"
     if semanage fcontext -a -t httpd_var_run_t "/run/ssl-manager(/.*)?" 2>/dev/null; then
         info "SELinux: fcontext rule added."
     else
-        # Rule may already exist — try modify instead
         semanage fcontext -m -t httpd_var_run_t "/run/ssl-manager(/.*)?" 2>/dev/null || \
             warn "SELinux: could not add fcontext rule — you may need to run this manually."
     fi
 
-    # httpd_can_network_connect lets nginx proxy upstream connections (belt-and-suspenders)
+    # Belt-and-suspenders: allow nginx to proxy upstream connections
     info "SELinux: enabling httpd_can_network_connect boolean…"
     setsebool -P httpd_can_network_connect 1
 
@@ -497,8 +520,8 @@ copy_app_files
 create_venv
 write_env_file  "${SECRET_KEY}"
 write_systemd_unit "${WORKERS}"
+configure_selinux "${PORT}"
 configure_nginx "${PORT}"
-configure_selinux
 
 info "Enabling and starting ${APP_NAME} service…"
 systemctl daemon-reload
