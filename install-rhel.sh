@@ -121,7 +121,8 @@ do_uninstall() {
 
     if selinux_active && command -v semanage &>/dev/null; then
         info "Removing SELinux file context policy for socket directory…"
-        semanage fcontext -d "/run/ssl-manager(/.*)?" 2>/dev/null || true
+        semanage fcontext -d "/var/run/ssl-manager(/.*)?" 2>/dev/null || true
+        semodule -r ssl-manager-nginx 2>/dev/null || true
     fi
 
     if confirm "Also delete the database directory (${DATA_DIR})?" n; then
@@ -389,8 +390,9 @@ EOF
 
     nginx -t || error "nginx configuration test failed — check ${NGINX_CONF}"
     systemctl enable --quiet nginx
-    systemctl reload nginx 2>/dev/null || systemctl start nginx
-    info "nginx configured. Listening on 127.0.0.1:${port}"
+    # nginx start/reload is deferred until after the app service creates its socket;
+    # we just write the config here and let the main flow handle the start.
+    info "nginx config written. Will start after app service is up."
 }
 
 configure_selinux() {
@@ -426,18 +428,48 @@ configure_selinux() {
 
     # Allow nginx (httpd_t domain) to connect to the gunicorn Unix socket.
     # The socket lives in /run/ssl-manager/ (a RuntimeDirectory).
-    # Setting httpd_var_run_t on that path lets nginx access the socket.
-    info "SELinux: setting httpd_var_run_t context on /run/ssl-manager/…"
-    if semanage fcontext -a -t httpd_var_run_t "/run/ssl-manager(/.*)?" 2>/dev/null; then
+    # On RHEL 9, /run is a symlink to /var/run and SELinux has an equivalency
+    # rule for that path — fcontext must use /var/run, not /run.
+    info "SELinux: setting httpd_var_run_t context on /var/run/ssl-manager/…"
+    if semanage fcontext -a -t httpd_var_run_t "/var/run/ssl-manager(/.*)?" 2>/dev/null; then
         info "SELinux: fcontext rule added."
     else
-        semanage fcontext -m -t httpd_var_run_t "/run/ssl-manager(/.*)?" 2>/dev/null || \
+        semanage fcontext -m -t httpd_var_run_t "/var/run/ssl-manager(/.*)?" 2>/dev/null || \
             warn "SELinux: could not add fcontext rule — you may need to run this manually."
     fi
 
     # Belt-and-suspenders: allow nginx to proxy upstream connections
     info "SELinux: enabling httpd_can_network_connect boolean…"
     setsebool -P httpd_can_network_connect 1
+
+    # Gunicorn runs as unconfined_service_t (no dedicated SELinux policy).
+    # nginx (httpd_t) is denied 'connectto' on unix_stream_socket owned by
+    # unconfined_service_t unless we explicitly allow it with a policy module.
+    info "SELinux: installing nginx → gunicorn socket policy module…"
+    local te_file; te_file="$(mktemp /tmp/ssl-manager-nginx-XXXXXX.te)"
+    cat > "${te_file}" <<'SEPOLICY'
+module ssl-manager-nginx 1.0;
+
+require {
+    type httpd_t;
+    type unconfined_service_t;
+    class unix_stream_socket connectto;
+}
+
+allow httpd_t unconfined_service_t:unix_stream_socket connectto;
+SEPOLICY
+
+    local mod_file="${te_file%.te}.mod"
+    local pp_file="${te_file%.te}.pp"
+    if checkmodule -M -m -o "${mod_file}" "${te_file}" && \
+       semodule_package -o "${pp_file}" -m "${mod_file}" && \
+       semodule -i "${pp_file}"; then
+        info "SELinux: policy module ssl-manager-nginx installed."
+    else
+        warn "SELinux: could not install policy module — nginx may get 502 errors."
+        warn "  Manual fix: ausearch -m avc -ts recent | audit2allow -M ssl-manager-nginx && semodule -i ssl-manager-nginx.pp"
+    fi
+    rm -f "${te_file}" "${mod_file}" "${pp_file}"
 
     info "SELinux configuration applied."
 }
@@ -528,8 +560,15 @@ systemctl daemon-reload
 systemctl enable --quiet "${APP_NAME}"
 systemctl restart "${APP_NAME}"
 
-# Restore SELinux contexts now that the RuntimeDirectory exists
+# Restore SELinux contexts now that the RuntimeDirectory and socket exist
 restorecon_socket_dir
+
+# Start (or reload) nginx now that the socket is live and contexts are applied
+info "Starting nginx…"
+systemctl reload nginx 2>/dev/null || systemctl start nginx || {
+    warn "nginx failed to start. Check: sudo journalctl -u nginx --no-pager -n 30"
+    warn "Common cause on RHEL: run 'sudo semanage port -l | grep http_port_t' to verify port ${PORT} is listed."
+}
 
 info "Enabling daily backup timer…"
 systemctl enable --quiet "${APP_NAME}-backup.timer"
