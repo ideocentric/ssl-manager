@@ -1,7 +1,8 @@
 # ==============================================================================
 # FILE:           app/models.py
 # DESCRIPTION:    SQLAlchemy ORM models: User, Settings, CertChain,
-#                 IntermediateCert, Certificate, AuditLog.
+#                 IntermediateCert, Certificate, AuditLog, SmtpConfig,
+#                 PasswordResetToken, PasswordResetAttempt.
 #
 # LICENSE:        GNU Affero General Public License v3.0 (AGPL-3.0)
 #                 Copyright (C) 2026  Matt Comeione / ideocentric
@@ -24,13 +25,14 @@ class User(db.Model, UserMixin):
 
     __tablename__ = "user"
 
-    id            = db.Column(db.Integer, primary_key=True)
-    username      = db.Column(db.String(64), unique=True, nullable=False)
-    email         = db.Column(db.String(256), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-    role          = db.Column(db.String(16), default="user", nullable=False)  # superadmin | user
-    active        = db.Column(db.Boolean, default=True, nullable=False)
-    created_at    = db.Column(db.DateTime, default=datetime.now)
+    id              = db.Column(db.Integer, primary_key=True)
+    username        = db.Column(db.String(64), unique=True, nullable=False)
+    email           = db.Column(db.String(256), unique=True, nullable=False)
+    password_hash   = db.Column(db.String(256), nullable=False)
+    role            = db.Column(db.String(16), default="user", nullable=False)  # superadmin | user
+    active          = db.Column(db.Boolean, default=True, nullable=False)
+    created_at      = db.Column(db.DateTime, default=datetime.now)
+    session_version = db.Column(db.Integer, nullable=False, default=0)
 
     @property
     def is_active(self):
@@ -298,3 +300,58 @@ class AuditLog(db.Model):
     resource_id   = db.Column(db.Integer)
     result        = db.Column(db.String(16))   # "success" | "failure"
     detail        = db.Column(db.String(512))
+
+
+class SmtpConfig(db.Model):
+    """Singleton SMTP configuration row for outbound email (password reset, notifications)."""
+
+    __tablename__ = "smtp_config"
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    provider            = db.Column(db.String(16), nullable=False, default="custom")  # m365 | gmail | custom
+    host                = db.Column(db.String(256), default="")
+    port                = db.Column(db.Integer, default=587)
+    username            = db.Column(db.String(256), default="")
+    from_address        = db.Column(db.String(256), default="")
+    _password_encrypted = db.Column(db.String(1024), default="")
+    auth_method         = db.Column(db.String(16), nullable=False, default="login")  # plain | login | none
+    use_tls             = db.Column(db.Boolean, nullable=False, default=True)
+    use_ssl             = db.Column(db.Boolean, nullable=False, default=False)
+    enabled             = db.Column(db.Boolean, nullable=False, default=False)
+
+    def encrypt_password(self, raw: str, fernet) -> None:
+        """Encrypt and store the SMTP password. Pass a Fernet instance from mail._fernet()."""
+        self._password_encrypted = fernet.encrypt(raw.encode()).decode()
+
+    def decrypt_password(self, fernet) -> str:
+        """Decrypt and return the SMTP password, or empty string if not set."""
+        if not self._password_encrypted:
+            return ""
+        try:
+            return fernet.decrypt(self._password_encrypted.encode()).decode()
+        except Exception:
+            return ""
+
+
+class PasswordResetToken(db.Model):
+    """Single-use, time-limited password reset token."""
+
+    __tablename__ = "password_reset_token"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    token_hash = db.Column(db.String(64), nullable=False, index=True)  # SHA-256 hex of raw token
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at    = db.Column(db.DateTime, nullable=True)
+    user       = db.relationship("User", backref=db.backref("reset_tokens", lazy="dynamic"))
+
+
+class PasswordResetAttempt(db.Model):
+    """Rate-limit counter for /forgot-password requests, keyed by IP address."""
+
+    __tablename__ = "password_reset_attempt"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    ip_address = db.Column(db.String(45), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
