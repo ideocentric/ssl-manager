@@ -159,6 +159,13 @@ def create_app(test_config=None):
         ("settings",          "name TEXT NOT NULL DEFAULT 'Default'"),
         ("settings",          "is_default INTEGER NOT NULL DEFAULT 0"),
         ("user",              "session_version INTEGER NOT NULL DEFAULT 0"),
+        ("smtp_config",       "auth_type TEXT NOT NULL DEFAULT 'smtp'"),
+        ("smtp_config",       "oauth_client_id TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_client_secret_enc TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_tenant_id TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_refresh_token_enc TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_access_token_enc TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_token_expiry DATETIME"),
     }
 
     def _add_column_if_missing(engine, table, column_def):
@@ -193,6 +200,13 @@ def create_app(test_config=None):
         _add_column_if_missing(db.engine, "settings", "name TEXT NOT NULL DEFAULT 'Default'")
         _add_column_if_missing(db.engine, "settings", "is_default INTEGER NOT NULL DEFAULT 0")
         _add_column_if_missing(db.engine, "user", "session_version INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(db.engine, "smtp_config", "auth_type TEXT NOT NULL DEFAULT 'smtp'")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_client_id TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_client_secret_enc TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_tenant_id TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_refresh_token_enc TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_access_token_enc TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_token_expiry DATETIME")
         # Seed initial profile or migrate legacy singleton
         if Settings.query.first() is None:
             db.session.add(Settings(name="Default", is_default=True, key_size=2048))

@@ -13,6 +13,7 @@ from io import BytesIO
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
+from cryptography.x509.oid import NameOID
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
@@ -25,9 +26,10 @@ from ..crypto import (
     get_chain_intermediates,
     get_default_profile,
     parse_cert_expiry,
+    parse_pem_bundle,
 )
 from ..extensions import db
-from ..models import Certificate, CertChain, CertificateAuthority, Settings
+from ..models import Certificate, CertChain, CertificateAuthority, IntermediateCert, Settings
 from ..security import _audit
 from ..validators import (
     _clean,
@@ -209,20 +211,90 @@ def certificate_upload(cert_id):
         flash("No certificate PEM provided.", "error")
         return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
 
+    # Split bundle — first cert is the leaf, any remainder are intermediates
     try:
-        expiry = parse_cert_expiry(signed_pem)
+        pem_blocks = parse_pem_bundle(signed_pem)
+    except ValueError as e:
+        flash(f"Invalid certificate PEM: {e}", "error")
+        return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
+
+    leaf_pem = pem_blocks[0]
+    bundle_intermediates = pem_blocks[1:]
+
+    try:
+        expiry = parse_cert_expiry(leaf_pem)
     except Exception as e:
         flash(f"Invalid certificate PEM: {e}", "error")
         return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
 
-    cert.signed_cert_pem = signed_pem
+    cert.signed_cert_pem = leaf_pem
     cert.status = "active"
     if expiry.tzinfo is not None:
         expiry = expiry.replace(tzinfo=None)
     cert.expiry_date = expiry
+
+    added_count = 0
+    skipped_count = 0
+
+    if bundle_intermediates:
+        # Create a chain if the cert doesn't have one yet
+        if cert.chain_id is None:
+            new_chain = CertChain(name=f"{cert.domain} (imported)")
+            db.session.add(new_chain)
+            db.session.flush()
+            cert.chain_id = new_chain.id
+
+        # Collect serial numbers already in the chain to avoid duplicates
+        existing = IntermediateCert.query.filter_by(chain_id=cert.chain_id).all()
+        existing_serials = set()
+        for ic in existing:
+            try:
+                existing_serials.add(
+                    x509.load_pem_x509_certificate(ic.pem_data.encode()).serial_number
+                )
+            except Exception:
+                pass
+
+        next_order = max((ic.order for ic in existing), default=-1) + 1
+
+        for pem in bundle_intermediates:
+            try:
+                parsed = x509.load_pem_x509_certificate(pem.encode())
+            except Exception:
+                skipped_count += 1
+                continue
+
+            if parsed.serial_number in existing_serials:
+                skipped_count += 1
+                continue
+
+            try:
+                cn = parsed.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+            except (IndexError, Exception):
+                cn = str(parsed.subject)
+
+            db.session.add(IntermediateCert(
+                name=cn,
+                pem_data=pem,
+                order=next_order,
+                chain_id=cert.chain_id,
+            ))
+            existing_serials.add(parsed.serial_number)
+            next_order += 1
+            added_count += 1
+
     db.session.commit()
     _audit("certificate_signed", "certificate", cert_id, "success", f"domain={cert.domain!r}")
-    flash("Signed certificate uploaded successfully.", "success")
+
+    if bundle_intermediates:
+        msg = f"Signed certificate uploaded. {added_count} intermediate(s) added to chain"
+        if skipped_count:
+            msg += f", {skipped_count} duplicate(s) skipped"
+        msg += "."
+        flash(msg, "success")
+    else:
+        flash("Signed certificate uploaded successfully.", "success")
+
     return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
 
 

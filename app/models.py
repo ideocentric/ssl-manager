@@ -318,6 +318,14 @@ class SmtpConfig(db.Model):
     use_tls             = db.Column(db.Boolean, nullable=False, default=True)
     use_ssl             = db.Column(db.Boolean, nullable=False, default=False)
     enabled             = db.Column(db.Boolean, nullable=False, default=False)
+    # OAuth 2.0 fields (gmail and m365 providers only)
+    auth_type               = db.Column(db.String(8),   nullable=False, default="smtp")  # smtp | oauth
+    oauth_client_id         = db.Column(db.String(512),  default="")
+    oauth_client_secret_enc = db.Column(db.String(1024), default="")
+    oauth_tenant_id         = db.Column(db.String(256),  default="")   # M365 only
+    oauth_refresh_token_enc = db.Column(db.String(2048), default="")
+    oauth_access_token_enc  = db.Column(db.String(4096), default="")
+    oauth_token_expiry      = db.Column(db.DateTime, nullable=True)
 
     def encrypt_password(self, raw: str, fernet) -> None:
         """Encrypt and store the SMTP password. Pass a Fernet instance from mail._fernet()."""
@@ -331,6 +339,43 @@ class SmtpConfig(db.Model):
             return fernet.decrypt(self._password_encrypted.encode()).decode()
         except Exception:
             return ""
+
+    def encrypt_oauth_secret(self, raw: str, fernet) -> None:
+        self.oauth_client_secret_enc = fernet.encrypt(raw.encode()).decode()
+
+    def decrypt_oauth_secret(self, fernet) -> str:
+        if not self.oauth_client_secret_enc:
+            return ""
+        try:
+            return fernet.decrypt(self.oauth_client_secret_enc.encode()).decode()
+        except Exception:
+            return ""
+
+    def encrypt_refresh_token(self, raw: str, fernet) -> None:
+        self.oauth_refresh_token_enc = fernet.encrypt(raw.encode()).decode()
+
+    def decrypt_refresh_token(self, fernet) -> str:
+        if not self.oauth_refresh_token_enc:
+            return ""
+        try:
+            return fernet.decrypt(self.oauth_refresh_token_enc.encode()).decode()
+        except Exception:
+            return ""
+
+    def encrypt_access_token(self, raw: str, fernet) -> None:
+        self.oauth_access_token_enc = fernet.encrypt(raw.encode()).decode()
+
+    def decrypt_access_token(self, fernet) -> str:
+        if not self.oauth_access_token_enc:
+            return ""
+        try:
+            return fernet.decrypt(self.oauth_access_token_enc.encode()).decode()
+        except Exception:
+            return ""
+
+    @property
+    def oauth_connected(self) -> bool:
+        return bool(self.auth_type == "oauth" and self.oauth_refresh_token_enc)
 
 
 class PasswordResetToken(db.Model):
