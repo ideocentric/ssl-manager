@@ -33,7 +33,6 @@ A Flask-based web application for managing SSL certificate lifecycle — from RS
 | `certificate.pem` | Signed certificate only | Inspection / verification |
 | `chain.pem` | Intermediates concatenated (no cert, no key) | Apache `SSLCACertificateFile` |
 | `fullchain.pem` | Signed cert + intermediates (no private key) | nginx `ssl_certificate` / Apache `SSLCertificateFile` (2.4.8+) |
-| `certificate.csr` | Original CSR | Records |
 
 > The **Full Chain PEM** single-file download (`domain-fullchain.pem`) includes the private key as well and is intended for tools that require everything in one file (e.g. HAProxy, some load balancers).
 

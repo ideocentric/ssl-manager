@@ -413,7 +413,7 @@ def download_components(cert_id):
         return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
     intermediates = get_chain_intermediates(cert.chain_id)
     buf = create_components_zip(cert.domain, cert.signed_cert_pem, cert.private_key_pem,
-                                [ic.pem_data for ic in intermediates], csr_pem=cert.csr_pem)
+                                [ic.pem_data for ic in intermediates])
     _audit("download_components", "certificate", cert_id, "success", f"domain={cert.domain!r}")
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=f"{cert.safe_domain}-certs.zip")

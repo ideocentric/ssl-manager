@@ -665,7 +665,6 @@ Extract the archive. Contents:
 | `certificate.pem` | End-entity cert only — use for inspection |
 | `chain.pem` | Intermediates only — Apache `SSLCACertificateFile` |
 | `fullchain.pem` | Cert + intermediates (no key) — nginx `ssl_certificate` / Apache `SSLCertificateFile` (2.4.8+) |
-| `certificate.csr` | Original CSR — keep for records |
 
 **nginx example:**
 ```nginx

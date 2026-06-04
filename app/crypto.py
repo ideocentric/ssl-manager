@@ -354,7 +354,7 @@ def create_p7b(cert_pem_list):
             pass
 
 
-def create_components_zip(domain, cert_pem, key_pem, intermediates_pem_list, csr_pem=None):
+def create_components_zip(domain, cert_pem, key_pem, intermediates_pem_list):
     """Create a ZIP of component PEM files. Returns BytesIO.
 
     Contents:
@@ -362,7 +362,6 @@ def create_components_zip(domain, cert_pem, key_pem, intermediates_pem_list, csr
       certificate.pem  — signed certificate only
       chain.pem        — intermediates concatenated (no cert, no key)
       fullchain.pem    — signed cert + intermediates (no private key)
-      certificate.csr  — original CSR (if available)
     """
     active_intermediates = [p for p in intermediates_pem_list if p and p.strip()]
 
@@ -379,9 +378,6 @@ def create_components_zip(domain, cert_pem, key_pem, intermediates_pem_list, csr
 
         fullchain_parts = [cert_pem] + active_intermediates
         zf.writestr("fullchain.pem", "\n".join(p.strip() for p in fullchain_parts) + "\n")
-
-        if csr_pem:
-            zf.writestr("certificate.csr", csr_pem)
 
     buf.seek(0)
     return buf

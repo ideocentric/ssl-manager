@@ -23,7 +23,7 @@ Initial production release.
 ### Download Formats
 
 - **Full Chain PEM** — private key + certificate + intermediates in a single file (HAProxy, CDN origins)
-- **Component ZIP** — individual `private_key.pem`, `certificate.pem`, `chain.pem`, `fullchain.pem`, `certificate.csr` (nginx, Apache)
+- **Component ZIP** — individual `private_key.pem`, `certificate.pem`, `chain.pem`, `fullchain.pem` (nginx, Apache)
 - **PKCS#12 / PFX** — password-protected bundle (Windows IIS, Azure App Service, F5 BIG-IP)
 - **Java KeyStore (JKS)** — configurable store password and alias (Tomcat, Spring Boot, Jetty)
 - **P7B** — certificate + chain without private key (Windows MMC, IIS)
