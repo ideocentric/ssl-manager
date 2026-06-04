@@ -254,10 +254,11 @@ def intermediate_record(client, chain_record, rsa_key):
                        data={"name": "Test CA", "pem_data": pem, "order": "0"},
                        follow_redirects=False)
     assert resp.status_code == 302
-    # Retrieve the ic id from the chain detail page
+    # Retrieve the ic id from the chain detail page.
+    # The template renders data-ic-edit pointing to the /update URL, not /edit.
     import re
     detail = client.get(f"/chains/{chain_record}")
-    match = re.search(rb"/intermediates/(\d+)/edit", detail.data)
+    match = re.search(rb"/chains/\d+/intermediates/(\d+)/update", detail.data)
     assert match, "Could not find intermediate record id in chain detail page"
     yield int(match.group(1)), chain_record
 

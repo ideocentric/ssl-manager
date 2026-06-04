@@ -114,12 +114,18 @@ def superadmin_required(f):
 IDLE_TIMEOUT = 15 * 60  # seconds
 
 
+_UNAUTHENTICATED_ENDPOINTS = frozenset((
+    None, "auth.setup", "auth.login", "auth.logout",
+    "reset.forgot_password", "reset.reset_password_form", "reset.reset_password_submit",
+))
+
+
 def security_checks():
-    """First-run redirect, idle session timeout, and CSRF enforcement."""
+    """First-run redirect, idle session timeout, session-version check, and CSRF enforcement."""
     if request.endpoint == "static":
         return
 
-    if request.endpoint not in (None, "auth.setup", "auth.login", "auth.logout"):
+    if request.endpoint not in _UNAUTHENTICATED_ENDPOINTS:
         if User.query.count() == 0:
             return redirect(url_for("auth.setup"))
 
@@ -135,6 +141,15 @@ def security_checks():
             flash("Your session expired due to inactivity. Please log in again.", "warning")
             return redirect(url_for("auth.login"))
         session["last_activity"] = now
+
+        # Session-version check — invalidates sessions after a password reset
+        sv_session = session.get("session_version")
+        if sv_session is not None and sv_session != current_user.session_version:
+            logout_user()
+            session.clear()
+            flash("Your session is no longer valid. Please sign in again.", "warning")
+            return redirect(url_for("auth.login"))
+        session["session_version"] = current_user.session_version
 
     if not current_app.testing and request.method in ("POST", "PUT", "PATCH", "DELETE"):
         session_token = session.get("csrf_token")

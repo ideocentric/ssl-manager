@@ -109,6 +109,8 @@ def create_app(test_config=None):
     from .routes.chains import bp as chains_bp
     from .routes.cas import bp as cas_bp
     from .routes.admin import bp as admin_bp
+    from .routes.smtp import bp as smtp_bp
+    from .routes.reset import bp as reset_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
@@ -117,6 +119,8 @@ def create_app(test_config=None):
     app.register_blueprint(chains_bp)
     app.register_blueprint(cas_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(smtp_bp)
+    app.register_blueprint(reset_bp)
 
     # ---------------------------------------------------------------------------
     # Jinja globals
@@ -154,6 +158,14 @@ def create_app(test_config=None):
         ("certificate",       "profile_id INTEGER REFERENCES settings(id)"),
         ("settings",          "name TEXT NOT NULL DEFAULT 'Default'"),
         ("settings",          "is_default INTEGER NOT NULL DEFAULT 0"),
+        ("user",              "session_version INTEGER NOT NULL DEFAULT 0"),
+        ("smtp_config",       "auth_type TEXT NOT NULL DEFAULT 'smtp'"),
+        ("smtp_config",       "oauth_client_id TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_client_secret_enc TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_tenant_id TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_refresh_token_enc TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_access_token_enc TEXT DEFAULT ''"),
+        ("smtp_config",       "oauth_token_expiry DATETIME"),
     }
 
     def _add_column_if_missing(engine, table, column_def):
@@ -175,7 +187,10 @@ def create_app(test_config=None):
     with app.app_context():
         # Import models to ensure they are registered with SQLAlchemy before
         # create_all() is called.
-        from .models import Certificate, CertChain, CertificateAuthority, IntermediateCert, Settings  # noqa: F401
+        from .models import (  # noqa: F401
+            Certificate, CertChain, CertificateAuthority, IntermediateCert,
+            PasswordResetAttempt, PasswordResetToken, Settings, SmtpConfig,
+        )
 
         db.create_all()
         # Ensure new columns exist on databases created before this schema version
@@ -184,6 +199,14 @@ def create_app(test_config=None):
         _add_column_if_missing(db.engine, "certificate", "profile_id INTEGER REFERENCES settings(id)")
         _add_column_if_missing(db.engine, "settings", "name TEXT NOT NULL DEFAULT 'Default'")
         _add_column_if_missing(db.engine, "settings", "is_default INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(db.engine, "user", "session_version INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(db.engine, "smtp_config", "auth_type TEXT NOT NULL DEFAULT 'smtp'")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_client_id TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_client_secret_enc TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_tenant_id TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_refresh_token_enc TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_access_token_enc TEXT DEFAULT ''")
+        _add_column_if_missing(db.engine, "smtp_config", "oauth_token_expiry DATETIME")
         # Seed initial profile or migrate legacy singleton
         if Settings.query.first() is None:
             db.session.add(Settings(name="Default", is_default=True, key_size=2048))

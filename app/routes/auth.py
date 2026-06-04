@@ -6,7 +6,7 @@
 #                 Copyright (C) 2026  Matt Comeione / ideocentric
 # ==============================================================================
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from ..extensions import db
@@ -67,6 +67,7 @@ def login():
             flash("This account has been deactivated.", "error")
             return render_template("login.html")
         login_user(user, remember=remember)
+        session["session_version"] = user.session_version
         _audit("login", "user", user.id, "success")
         next_page = request.args.get("next")
         return redirect(next_page or url_for("certificates.certificates"))

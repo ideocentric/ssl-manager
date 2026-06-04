@@ -78,6 +78,33 @@ ssh -L 5001:127.0.0.1:5001 youruser@your-server
 
 Then open your browser to `http://localhost:5001`.
 
+**Persistent SSH config on Windows 10 / 11**
+
+Windows 10 (build 1809 and later) and Windows 11 support the same `~/.ssh/config` file as macOS and Linux. The file lives at:
+
+```
+C:\Users\YourUsername\.ssh\config
+```
+
+Create or edit it in any text editor (Notepad, VS Code, etc.) using exactly the same syntax:
+
+```
+Host ssl-manager
+    HostName     your-server
+    User         youruser
+    LocalForward 5001 127.0.0.1:5001
+    ServerAliveInterval 60
+    ServerAliveCountMax 10
+```
+
+After saving, connect from PowerShell or Command Prompt with:
+
+```
+ssh ssl-manager
+```
+
+If the `.ssh` folder does not exist yet, run `ssh youruser@your-server` once from PowerShell — Windows creates the folder automatically on first use.
+
 ### 1.3 Windows — PuTTY
 
 1. Open PuTTY and enter your server's hostname under **Session**.
@@ -351,7 +378,7 @@ The CSR is what you send to your Certificate Authority (CA) to request a signed 
 2. Log in to your CA's portal (e.g. DigiCert, Sectigo, GoDaddy, Let's Encrypt with a manual workflow), **or** sign the certificate using an internal CA (see [Section 6.2](#62-sign-a-pending-certificate)).
 3. Start a new certificate order and paste or upload the `.csr` file when the CA asks for it.
 4. Complete any domain validation (DCV) steps required by the CA (email, DNS record, or file upload).
-5. Once the CA approves and issues the certificate, download it. You want the **domain certificate only** — not the bundle that includes intermediates. The file is usually a `.crt` or `.pem` file.
+5. Once the CA approves and issues the certificate, download it. You can download either the **domain certificate only** or a **bundle that includes intermediates** — SSL Manager handles both. The file is usually a `.crt`, `.pem`, or `.ca-bundle` file.
 
 > **Keep the original certificate record open.** The private key is stored server-side and is already paired with this CSR. You must upload the signed certificate back to the same certificate record.
 
@@ -363,7 +390,9 @@ The CSR is what you send to your Certificate Authority (CA) to request a signed 
    - Open the file in a text editor, copy the entire PEM block (including the `-----BEGIN CERTIFICATE-----` header and `-----END CERTIFICATE-----` footer), and paste it into the text area.
 3. Click **Save Certificate**.
 
-The application validates the PEM and extracts the expiry date. The status changes to **Active** and the expiry date appears with a colour indicator:
+The application validates the PEM and extracts the expiry date. The status changes to **Active** and the expiry date appears with a colour indicator.
+
+> **Bundle uploads:** If the file from your CA contains multiple certificates concatenated together (a common format from providers such as NameCheap, Sectigo, and DigiCert), SSL Manager automatically splits the bundle. The first certificate is stored as your domain certificate and any additional certificates (intermediate CAs) are added to the certificate's chain, deduplicated by serial number. If no chain is assigned yet, one named `"{domain} (imported)"` is created automatically. The success message will report how many intermediates were added.
 
 | Colour | Meaning |
 |---|---|
@@ -469,7 +498,6 @@ A ZIP archive containing individual files for maximum flexibility:
 | `certificate.pem` | The domain certificate on its own |
 | `chain.pem` | Intermediate certificates only — Apache `SSLCACertificateFile` |
 | `fullchain.pem` | Domain certificate + intermediates (no key) — nginx `ssl_certificate`, Apache `SSLCertificateFile` |
-| `certificate.csr` | The original CSR — keep for your records |
 
 ### PKCS#12 / PFX
 
