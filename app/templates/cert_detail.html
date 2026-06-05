@@ -129,23 +129,36 @@
     <h6 class="mb-0"><i class="bi bi-patch-check me-2"></i>Signed Certificate</h6>
   </div>
   <div class="card-body">
-    <p class="text-muted">Provide the signed certificate PEM you received from your Certificate Authority — either upload a file or paste the PEM text below.</p>
+    <p class="text-muted">Upload the signed certificate returned by your CA — a single PEM, a PEM bundle (cert + intermediates), or a PKCS#7 (.p7b) file. Intermediate certificates are extracted and added to the chain automatically.</p>
     <form method="post" action="{{ url_for('certificates.certificate_upload', cert_id=cert.id) }}"
           enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label class="form-label fw-semibold">Upload Certificate File</label>
-        <input type="file" name="cert_file" class="form-control"
-               accept=".pem,.crt,.cer,.txt" />
-        <div class="form-text">Accepted formats: .pem, .crt, .cer</div>
+        <input type="file" id="certFileInput" name="cert_file" class="form-control"
+               accept=".pem,.crt,.cer,.p7b,.p7" />
+        <div class="form-text">Accepted: .pem, .crt, .cer, .p7b</div>
       </div>
+
+      <!-- AJAX preview panel -->
+      <div id="bundlePreview" class="mb-3" style="display:none;">
+        <div class="card border-info">
+          <div class="card-header py-2" style="background:rgba(13,202,240,.15);">
+            <small class="fw-semibold"><i class="bi bi-search me-1"></i>File Analysis</small>
+          </div>
+          <div class="card-body py-2 small" id="bundlePreviewBody">
+            <span class="spinner-border spinner-border-sm me-1"></span> Analysing…
+          </div>
+        </div>
+      </div>
+
       <div class="text-center text-muted my-3 fw-semibold small">— or paste below —</div>
       <div class="mb-3">
         <label class="form-label fw-semibold">Signed Certificate PEM</label>
         <textarea name="signed_cert_pem" class="form-control font-monospace" rows="8"
                   placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                   style="font-size:0.8rem;"></textarea>
-        <div class="form-text">Paste only the leaf certificate (not the chain). Manage intermediate certificates in <a href="{{ url_for('chains.chains') }}">Chains</a>.</div>
+        <div class="form-text">Paste a single certificate or a full PEM bundle. Intermediates will be extracted automatically.</div>
       </div>
       <button type="submit" class="btn btn-success">
         <i class="bi bi-floppy-fill me-2"></i>Save Certificate
@@ -433,4 +446,77 @@
     <i class="bi bi-trash-fill me-2"></i>Delete Certificate
   </button>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if cert.status == 'pending_signing' %}
+<script>
+(function () {
+  const fileInput   = document.getElementById('certFileInput');
+  const previewDiv  = document.getElementById('bundlePreview');
+  const previewBody = document.getElementById('bundlePreviewBody');
+  const csrfToken   = document.querySelector('input[name="csrf_token"]').value;
+  const previewUrl  = "{{ url_for('certificates.certificate_upload_preview', cert_id=cert.id) }}";
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function chainActionText(data) {
+    if (data.chain_action === 'use_existing')
+      return `Will use existing chain <strong>${esc(data.chain_name)}</strong>`;
+    if (data.chain_action === 'create')
+      return `Will create new chain <strong>${esc(data.chain_name)}</strong>`;
+    if (data.chain_action === 'add_to_assigned')
+      return `Will add intermediates to chain <strong>${esc(data.chain_name)}</strong>`;
+    return '';
+  }
+
+  fileInput.addEventListener('change', function () {
+    if (!this.files || !this.files[0]) { previewDiv.style.display = 'none'; return; }
+
+    previewBody.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing…';
+    previewDiv.style.display = '';
+
+    const fd = new FormData();
+    fd.append('cert_file', this.files[0]);
+    fd.append('csrf_token', csrfToken);
+
+    fetch(previewUrl, { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) {
+          previewBody.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${esc(data.error)}</span>`;
+          return;
+        }
+        const matchIcon = data.leaf.matches_csr === true
+          ? '<i class="bi bi-check-circle text-success me-1"></i>'
+          : data.leaf.matches_csr === false
+            ? '<i class="bi bi-exclamation-triangle text-warning me-1"></i>'
+            : '';
+        let html = `<div class="mb-1"><strong>Leaf:</strong> ${matchIcon}${esc(data.leaf.cn)} <span class="text-muted">(expires ${esc(data.leaf.expiry)})</span></div>`;
+
+        if (data.intermediates.length > 0) {
+          html += '<div class="mb-1"><strong>Intermediates:</strong><ul class="mb-1 ps-3">';
+          data.intermediates.forEach(ic => {
+            const badge = ic.is_duplicate
+              ? '<span class="badge bg-secondary ms-1">already in chain</span>'
+              : '<span class="badge bg-success ms-1">new</span>';
+            html += `<li>${esc(ic.cn)}${badge}</li>`;
+          });
+          html += '</ul></div>';
+        }
+
+        const chainText = chainActionText(data);
+        if (chainText) html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>${chainText}</div>`;
+        if (data.invalid_count > 0)
+          html += `<div class="text-warning mt-1"><i class="bi bi-exclamation-triangle me-1"></i>${esc(String(data.invalid_count))} block(s) could not be parsed and will be skipped.</div>`;
+
+        previewBody.innerHTML = html;
+      })
+      .catch(() => { previewDiv.style.display = 'none'; });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

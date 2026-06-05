@@ -8,11 +8,12 @@
 # ==============================================================================
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import NameOID
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
-from ..crypto import parse_pem_bundle
+from ..crypto import parse_pem_bundle, split_bundle_by_role
 from ..extensions import db
 from ..models import Certificate, CertChain, IntermediateCert
 from ..security import _audit
@@ -253,41 +254,75 @@ def chain_import(chain_id):
         flash(str(e), "error")
         return render_template("chain_import.html", chain=chain)
 
-    existing = IntermediateCert.query.filter_by(chain_id=chain_id).order_by(
-        IntermediateCert.order.desc()
-    ).first()
-    next_order = (existing.order + 1) if existing else 0
-
-    added = 0
-    skipped = []
+    # Parse all blocks and split by role — only CA certs belong in a chain
+    cert_pairs = []
+    invalid_count = 0
     for pem in pem_blocks:
         try:
-            parsed = x509.load_pem_x509_certificate(pem.encode())
-        except Exception as e:
-            skipped.append(f"(unparseable block: {e})")
-            continue
+            cert_pairs.append((pem, x509.load_pem_x509_certificate(pem.encode())))
+        except Exception:
+            invalid_count += 1
 
+    leaf_certs, intermediates = split_bundle_by_role([c for _, c in cert_pairs])
+    intermediate_serials = {c.serial_number for c in intermediates}
+    # Keep the original PEM string for each intermediate (avoids re-serialization)
+    intermediate_pem_map = {
+        c.serial_number: pem for pem, c in cert_pairs if c.serial_number in intermediate_serials
+    }
+
+    if leaf_certs:
+        flash(
+            f"{len(leaf_certs)} end-entity certificate(s) were skipped — "
+            "only CA certificates can be added to a chain.",
+            "warning",
+        )
+
+    # Dedup by serial number against existing chain entries
+    existing_records = IntermediateCert.query.filter_by(chain_id=chain_id).all()
+    existing_serials = set()
+    for ic in existing_records:
         try:
-            cn = parsed.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-        except (IndexError, Exception):
-            cn = str(parsed.subject)
+            existing_serials.add(
+                x509.load_pem_x509_certificate(ic.pem_data.encode()).serial_number
+            )
+        except Exception:
+            pass
 
-        if IntermediateCert.query.filter_by(chain_id=chain_id, pem_data=pem).first():
-            skipped.append(cn)
+    last = IntermediateCert.query.filter_by(chain_id=chain_id).order_by(
+        IntermediateCert.order.desc()
+    ).first()
+    next_order = (last.order + 1) if last else 0
+
+    added = 0
+    skipped_dup = 0
+    for cert_obj in intermediates:
+        if cert_obj.serial_number in existing_serials:
+            skipped_dup += 1
             continue
-
+        try:
+            cn = cert_obj.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        except (IndexError, Exception):
+            cn = str(cert_obj.subject)
+        pem = intermediate_pem_map.get(
+            cert_obj.serial_number,
+            cert_obj.public_bytes(serialization.Encoding.PEM).decode(),
+        )
         db.session.add(IntermediateCert(name=cn, pem_data=pem, order=next_order, chain_id=chain_id))
+        existing_serials.add(cert_obj.serial_number)
         next_order += 1
         added += 1
 
     db.session.commit()
 
     if added:
-        _audit("chain_import", "chain", chain_id, "success", f"imported={added} skipped={len(skipped)}")
+        _audit("chain_import", "chain", chain_id, "success",
+               f"imported={added} skipped_dup={skipped_dup} skipped_invalid={invalid_count}")
         flash(f"Imported {added} certificate(s) successfully.", "success")
-    if skipped:
-        flash(f"Skipped {len(skipped)} duplicate/invalid certificate(s): {', '.join(skipped)}", "warning")
-    if not added and not skipped:
+    if skipped_dup:
+        flash(f"{skipped_dup} duplicate(s) already in chain were skipped.", "warning")
+    if invalid_count:
+        flash(f"{invalid_count} unparseable block(s) were skipped.", "warning")
+    if not added and not skipped_dup and not invalid_count and not leaf_certs:
         flash("No certificates were imported.", "warning")
 
     return redirect(url_for("chains.chain_detail", chain_id=chain_id))

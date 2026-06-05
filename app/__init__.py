@@ -70,7 +70,13 @@ def create_app(test_config=None):
         "DATABASE_URL", "sqlite:///ssl_manager.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "ssl-manager-secret-key-change-in-prod")
+    _secret = os.environ.get("SECRET_KEY")
+    if not _secret and test_config is None:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is not set. "
+            "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    app.config["SECRET_KEY"] = _secret or "test-only-secret-key"
     app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB upload limit
 
     if test_config is not None:

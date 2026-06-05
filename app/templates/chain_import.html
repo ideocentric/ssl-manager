@@ -13,8 +13,11 @@
           <div>
             Upload a PEM bundle file (e.g. a CA-provided <code>.crt</code> or <code>.pem</code> file containing
             multiple concatenated certificates) or paste the PEM text below.
-            Each certificate will be imported as a separate entry in the chain, named from its Common Name.
+            Each CA certificate will be imported as a separate entry in the chain, named from its Common Name.
             Duplicates already present in this chain are skipped automatically.
+            <br><br>
+            <strong>Note:</strong> Only CA certificates (<code>BasicConstraints CA:TRUE</code>) are imported.
+            End-entity (leaf) certificates are skipped with a warning.
           </div>
         </div>
 

@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-lock-fill me-2"></i>Import P12 / PFX Certificate</h5>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info d-flex align-items-start mb-4">
+          <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+          <div>
+            Import a PKCS#12 (<code>.p12</code> / <code>.pfx</code>) file containing a private key,
+            signed certificate, and optional CA chain. All components are extracted automatically.
+            The private key is stored unencrypted — the P12 password is used only to decrypt the file
+            and is never saved.
+          </div>
+        </div>
+
+        <form method="post" action="{{ url_for('certificates.certificate_import_p12') }}"
+              enctype="multipart/form-data" id="p12ImportForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">P12 File</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Upload P12 / PFX File</label>
+            <input type="file" id="p12FileInput" name="p12_file" class="form-control"
+                   accept=".p12,.pfx" />
+            <div class="form-text">Accepted formats: .p12, .pfx</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">P12 Password</label>
+            <div class="input-group">
+              <input type="password" id="p12Password" name="password" class="form-control"
+                     placeholder="Leave blank if no password" autocomplete="off" />
+              <button class="btn btn-outline-secondary" type="button" id="p12PasswordToggle">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- AJAX preview panel -->
+          <div id="p12Preview" class="mb-3" style="display:none;">
+            <div class="card border-info">
+              <div class="card-header py-2" style="background:rgba(13,202,240,.15);">
+                <small class="fw-semibold"><i class="bi bi-search me-1"></i>File Analysis</small>
+              </div>
+              <div class="card-body py-2 small" id="p12PreviewBody">
+                <span class="spinner-border spinner-border-sm me-1"></span> Analysing…
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Certificate Details</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Domain / Common Name</label>
+            <input type="text" id="p12Domain" name="domain" class="form-control"
+                   placeholder="Auto-detected from certificate CN" />
+            <div class="form-text">Leave blank to use the CN from the certificate. Override if needed.</div>
+          </div>
+
+          {% if chains %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Assign Chain</label>
+            <select id="p12ChainId" name="chain_id" class="form-select">
+              <option value="">— None (auto-create if intermediates found) —</option>
+              {% for c in chains %}
+              <option value="{{ c.id }}">{{ c.name }}{% if c.description %} — {{ c.description }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">If the P12 contains intermediate CAs, they will be added to this chain (or a new chain will be created).</div>
+          </div>
+          {% endif %}
+
+          <div class="mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="bi bi-lock-fill me-2"></i>Import P12
+            </button>
+            <a href="{{ url_for('certificates.certificates') }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const fileInput    = document.getElementById('p12FileInput');
+  const passwordInput = document.getElementById('p12Password');
+  const previewDiv   = document.getElementById('p12Preview');
+  const previewBody  = document.getElementById('p12PreviewBody');
+  const domainInput  = document.getElementById('p12Domain');
+  const chainSelect  = document.getElementById('p12ChainId');
+  const toggleBtn    = document.getElementById('p12PasswordToggle');
+  const csrfToken    = document.querySelector('input[name="csrf_token"]').value;
+  const previewUrl   = "{{ url_for('certificates.certificate_import_p12_preview') }}";
+
+  toggleBtn.addEventListener('click', function () {
+    const isPassword = passwordInput.type === 'password';
+    passwordInput.type = isPassword ? 'text' : 'password';
+    this.querySelector('i').className = isPassword ? 'bi bi-eye-slash' : 'bi bi-eye';
+  });
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function runPreview() {
+    if (!fileInput.files || !fileInput.files[0]) { previewDiv.style.display = 'none'; return; }
+
+    if (!passwordInput.value) {
+      previewBody.innerHTML = '<span class="text-muted"><i class="bi bi-lock me-1"></i>Enter the P12 password to preview contents.</span>';
+      previewDiv.style.display = '';
+      return;
+    }
+
+    previewBody.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing…';
+    previewDiv.style.display = '';
+
+    const fd = new FormData();
+    fd.append('p12_file', fileInput.files[0]);
+    fd.append('password', passwordInput.value);
+    fd.append('csrf_token', csrfToken);
+    if (chainSelect) fd.append('chain_id', chainSelect.value);
+
+    fetch(previewUrl, { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) {
+          previewBody.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${esc(data.error)}</span>`;
+          return;
+        }
+
+        if (domainInput && !domainInput.value) domainInput.value = data.leaf.cn;
+
+        const ki = data.private_key;
+        const keyInfo = ki
+          ? `<span class="badge bg-secondary ms-1">${esc(ki.type)}${ki.bits ? '-' + esc(String(ki.bits)) : ''}</span>`
+          : '';
+        let html = `<div class="mb-1"><strong>Private key:</strong>${keyInfo}</div>`;
+        html += `<div class="mb-1"><strong>Certificate:</strong> ${esc(data.leaf.cn)} <span class="text-muted">(expires ${esc(data.leaf.expiry)})</span></div>`;
+
+        if (data.intermediates.length > 0) {
+          html += '<div class="mb-1"><strong>Intermediates:</strong><ul class="mb-1 ps-3">';
+          data.intermediates.forEach(ic => {
+            const badge = ic.is_duplicate
+              ? '<span class="badge bg-secondary ms-1">already in chain</span>'
+              : '<span class="badge bg-success ms-1">new</span>';
+            html += `<li>${esc(ic.cn)}${badge}</li>`;
+          });
+          html += '</ul></div>';
+        }
+
+        if (data.chain_action === 'use_existing')
+          html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>Will use existing chain <strong>${esc(data.chain_name)}</strong></div>`;
+        else if (data.chain_action === 'create')
+          html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>Will create new chain <strong>${esc(data.chain_name)}</strong></div>`;
+        else if (data.chain_action === 'add_to_assigned')
+          html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>Will add intermediates to chain <strong>${esc(data.chain_name)}</strong></div>`;
+
+        previewBody.innerHTML = html;
+      })
+      .catch(() => { previewDiv.style.display = 'none'; });
+  }
+
+  let pwTimer;
+  fileInput.addEventListener('change', runPreview);
+  passwordInput.addEventListener('input', function () {
+    clearTimeout(pwTimer);
+    pwTimer = setTimeout(runPreview, 600);
+  });
+  if (chainSelect) chainSelect.addEventListener('change', runPreview);
+})();
+</script>
+{% endblock %}
