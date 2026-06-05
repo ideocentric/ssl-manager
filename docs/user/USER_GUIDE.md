@@ -34,6 +34,8 @@ This guide covers everything an end user needs: connecting to the application, s
    - [Download and Submit the CSR](#72-download-and-submit-the-csr)
    - [Upload the Signed Certificate](#73-upload-the-signed-certificate)
    - [Import an External CSR](#74-import-an-external-csr)
+   - [Import a PKCS#12 / PFX Certificate](#75-import-a-pkcs12--pfx-certificate)
+   - [Import a Private Key + Certificate](#76-import-a-private-key--certificate)
 8. [Browsing and Finding Certificates](#8-browsing-and-finding-certificates)
 9. [Downloading Certificates](#9-downloading-certificates)
 10. [Renewing a Certificate](#10-renewing-a-certificate)
@@ -271,6 +273,8 @@ If your CA provides a single file containing multiple certificates concatenated 
 
 Each certificate is added as a separate entry in the chain, ordered from the first PEM block to the last.
 
+> **End-entity certificates are skipped:** Chains should only contain CA certificates (intermediates and roots). If the bundle includes a domain/leaf certificate, SSL Manager detects it automatically and skips it with a warning. Only CA certificates are imported into the chain.
+
 ---
 
 ## 6. Certificate Authorities (Internal CA)
@@ -385,14 +389,18 @@ The CSR is what you send to your Certificate Authority (CA) to request a signed 
 ### 7.3 Upload the Signed Certificate
 
 1. Return to the **Certificate Detail** page for your certificate.
-2. In the **Signed Certificate** section, either:
-   - Click **Choose File** and select the `.crt`/`.pem` file downloaded from your CA, **or**
-   - Open the file in a text editor, copy the entire PEM block (including the `-----BEGIN CERTIFICATE-----` header and `-----END CERTIFICATE-----` footer), and paste it into the text area.
-3. Click **Save Certificate**.
+2. In the **Signed Certificate** section, click **Choose File** and select the file downloaded from your CA. Accepted formats:
+   - A single certificate (`.crt`, `.pem`, `.cer`)
+   - A PEM bundle containing the certificate and intermediate CAs concatenated together
+   - A PKCS#7 bundle (`.p7b` / `.p7`) — common from GlobalSign and some enterprise CAs
+3. A **File Analysis** preview panel appears automatically, showing what was detected — the leaf certificate, any intermediates, and how the chain will be handled — before you commit.
+4. Click **Save Certificate**.
 
-The application validates the PEM and extracts the expiry date. The status changes to **Active** and the expiry date appears with a colour indicator.
+The application validates the certificate, extracts the expiry date, and stores the leaf certificate. The status changes to **Active**.
 
-> **Bundle uploads:** If the file from your CA contains multiple certificates concatenated together (a common format from providers such as NameCheap, Sectigo, and DigiCert), SSL Manager automatically splits the bundle. The first certificate is stored as your domain certificate and any additional certificates (intermediate CAs) are added to the certificate's chain, deduplicated by serial number. If no chain is assigned yet, one named `"{domain} (imported)"` is created automatically. The success message will report how many intermediates were added.
+> **Bundle and P7B uploads:** If the file from your CA contains multiple certificates (common from NameCheap, Sectigo, DigiCert, GlobalSign), SSL Manager automatically identifies the leaf certificate using the certificate's CA flag and splits out any intermediates. Intermediates are added to the certificate's assigned chain, deduplicated by serial number. If no chain is assigned yet, one named `"{domain} (imported)"` is created automatically. The success message reports how many intermediates were added.
+
+> **Key mismatch warning:** If the uploaded certificate's public key does not match the stored CSR (for example if your CA re-keyed the certificate), SSL Manager stores the certificate and shows a warning. Verify the certificate is correct before deploying it.
 
 | Colour | Meaning |
 |---|---|
@@ -408,7 +416,7 @@ Some systems — network appliances, load balancers, identity platforms such as 
 
 Use **Import CSR** for this workflow:
 
-1. On the **Certificates** page, click **Import CSR**.
+1. On the **Certificates** page, open the **Import ▾** dropdown and click **Import CSR**.
 2. Either paste the CSR PEM block (including the `-----BEGIN CERTIFICATE REQUEST-----` header and footer) into the text area, or upload the `.csr` file directly.
 3. Optionally assign a certificate chain.
 4. Click **Import CSR**.
@@ -436,6 +444,34 @@ Because the private key is not held by SSL Manager, formats that require it are 
 | P7B | No (requires private key) |
 
 Download the **Certificate PEM** and install it on the originating device following that device's certificate import procedure.
+
+### 7.5 Import a PKCS#12 / PFX Certificate
+
+Use this when you already have a certificate and its private key bundled together in a `.p12` or `.pfx` file — for example, when migrating from another certificate management tool or exporting from a Windows certificate store.
+
+1. On the **Certificates** page, open the **Import ▾** dropdown and click **Import P12 / PFX**.
+2. Click **Choose File** and select your `.p12` or `.pfx` file.
+3. Enter the **P12 Password**. As you type, a **File Analysis** preview appears showing the private key type, the certificate details, any intermediates, and how the chain will be handled.
+4. Optionally override the **Domain / Common Name** (leave blank to use the CN from the certificate).
+5. Optionally select a chain to assign.
+6. Click **Import P12**.
+
+A new certificate record is created with status **Active**. The private key is extracted from the P12, decrypted, and stored unencrypted by SSL Manager — the P12 password is used only during import and is never saved.
+
+> **Chain matching:** If the P12 contains intermediate CA certificates that match an existing chain in SSL Manager, that chain is assigned automatically. If no match is found, a new chain named `"{domain} (imported)"` is created.
+
+### 7.6 Import a Private Key + Certificate
+
+Use this when you have a private key and a signed certificate as separate PEM files — common when migrating from a directory-based certificate workflow or another tool that stores them separately.
+
+1. On the **Certificates** page, open the **Import ▾** dropdown and click **Import Private Key + Certificate**.
+2. Upload the **private key file** (`.pem` or `.key`), or paste the key PEM into the text area. If the key is encrypted, enter the key password.
+3. Upload the **certificate file**, or paste the PEM into the text area. This can be a single certificate, a PEM bundle with intermediates, or a `.p7b` file.
+4. Once both are provided, a **File Analysis** preview appears confirming the key and certificate match, showing any detected intermediates, and describing the chain action.
+5. Optionally override the domain and assign a chain.
+6. Click **Import Certificate**.
+
+> **Key/certificate mismatch:** If the private key and certificate do not correspond (their public keys differ), the import is blocked with an error. Verify you have the correct key and certificate pair before trying again.
 
 ---
 
