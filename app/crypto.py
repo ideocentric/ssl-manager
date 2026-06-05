@@ -18,12 +18,12 @@ from zipfile import ZipFile
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives.serialization import pkcs12
+from cryptography.hazmat.primitives.asymmetric import ec as _ec, rsa
+from cryptography.hazmat.primitives.serialization import pkcs12, pkcs7 as _pkcs7
 from cryptography.x509.oid import NameOID
 
 from .extensions import db
-from .models import IntermediateCert, Settings
+from .models import CertChain, IntermediateCert, Settings
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +242,150 @@ def parse_pem_bundle(text):
     if not certs:
         raise ValueError("No PEM certificate blocks found in the provided text.")
     return [c.strip() for c in certs]
+
+
+def parse_p7b_bundle(data):
+    """Parse a DER or PEM PKCS#7 bundle and return a list of PEM cert strings.
+
+    Raises ValueError if the file cannot be parsed or contains no certificates.
+    """
+    try:
+        certs = _pkcs7.load_der_pkcs7_certificates(data)
+    except Exception:
+        try:
+            certs = _pkcs7.load_pem_pkcs7_certificates(data)
+        except Exception as e:
+            raise ValueError(f"Could not parse P7B file: {e}") from e
+    if not certs:
+        raise ValueError("P7B file contains no certificates.")
+    return [c.public_bytes(serialization.Encoding.PEM).decode() for c in certs]
+
+
+def is_ca_cert(cert):
+    """Return True if cert has BasicConstraints ca=True."""
+    try:
+        bc = cert.extensions.get_extension_for_class(x509.BasicConstraints)
+        return bc.value.ca
+    except x509.ExtensionNotFound:
+        return False
+
+
+def split_bundle_by_role(certs):
+    """Split a list of x509.Certificate into (leaves, intermediates) by BasicConstraints.
+
+    Leaves have CA:FALSE or no BasicConstraints; intermediates have CA:TRUE.
+    """
+    leaves = [c for c in certs if not is_ca_cert(c)]
+    intermediates = [c for c in certs if is_ca_cert(c)]
+    return leaves, intermediates
+
+
+def identify_leaf_cert(leaves, csr_pem=None):
+    """Return the leaf certificate from a list of non-CA certs.
+
+    Single leaf → returns it directly.
+    Multiple leaves + csr_pem → matches by public key.
+    Otherwise → returns None (ambiguous).
+    """
+    if len(leaves) == 1:
+        return leaves[0]
+    if not leaves:
+        return None
+    if csr_pem:
+        try:
+            csr = x509.load_pem_x509_csr(csr_pem.encode())
+            csr_pub = csr.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            for leaf in leaves:
+                leaf_pub = leaf.public_key().public_bytes(
+                    serialization.Encoding.DER,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+                if leaf_pub == csr_pub:
+                    return leaf
+        except Exception:
+            pass
+    return None
+
+
+def find_matching_chain(intermediate_serials):
+    """Return a CertChain whose intermediates cover all given serial numbers, or None."""
+    if not intermediate_serials:
+        return None
+    for chain in CertChain.query.all():
+        chain_serials = set()
+        for ic in chain.intermediates:
+            try:
+                chain_serials.add(
+                    x509.load_pem_x509_certificate(ic.pem_data.encode()).serial_number
+                )
+            except Exception:
+                pass
+        if intermediate_serials.issubset(chain_serials):
+            return chain
+    return None
+
+
+def parse_pkcs12(data, password):
+    """Parse a PKCS#12 bundle. Returns (private_key_pem, leaf_cert_pem, ca_cert_pem_list).
+
+    Raises ValueError on wrong password or malformed data.
+    Private key is serialized without encryption.
+    """
+    pwd = password.encode() if password else b""
+    try:
+        p12 = pkcs12.load_pkcs12(data, pwd)
+    except Exception as e:
+        raise ValueError(f"Could not read PKCS#12 file: {e}") from e
+    if p12.key is None:
+        raise ValueError("No private key found in PKCS#12 file.")
+    if p12.cert is None:
+        raise ValueError("No certificate found in PKCS#12 file.")
+
+    key_pem = p12.key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    cert_pem = p12.cert.certificate.public_bytes(serialization.Encoding.PEM).decode()
+    ca_pems = []
+    if p12.additional_certs:
+        for ac in p12.additional_certs:
+            ca_pems.append(ac.certificate.public_bytes(serialization.Encoding.PEM).decode())
+    return key_pem, cert_pem, ca_pems
+
+
+def keys_match(private_key_pem, cert_pem):
+    """Return True if the private key's public key matches the certificate's public key."""
+    try:
+        key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        key_pub = key.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        cert_pub = cert.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        return key_pub == cert_pub
+    except Exception:
+        return False
+
+
+def get_key_info(private_key_pem):
+    """Return a dict describing the private key type and size."""
+    try:
+        key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+        if isinstance(key, rsa.RSAPrivateKey):
+            return {"type": "RSA", "bits": key.key_size}
+        if isinstance(key, _ec.EllipticCurvePrivateKey):
+            return {"type": "EC", "bits": key.key_size, "curve": key.curve.name}
+        return {"type": "other", "bits": None}
+    except Exception:
+        return {"type": "unknown", "bits": None}
 
 
 # ---------------------------------------------------------------------------

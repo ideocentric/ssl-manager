@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-key-fill me-2"></i>Import Private Key + Certificate</h5>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info d-flex align-items-start mb-4">
+          <i class="bi bi-info-circle-fill me-2 mt-1 flex-shrink-0"></i>
+          <div>
+            Import an existing private key and its matching signed certificate. Use this to migrate
+            certificates from an existing system (e.g. a directory-based workflow) into SSL Manager.
+            The certificate file can be a single PEM, a PEM bundle (cert + intermediates), or a
+            PKCS#7 (.p7b) file — intermediates are extracted automatically.
+            <br><br>
+            <strong>The private key and certificate must match.</strong> Import is aborted if the
+            public keys do not correspond.
+          </div>
+        </div>
+
+        <form method="post" action="{{ url_for('certificates.certificate_import_keypair') }}"
+              enctype="multipart/form-data" id="keypairImportForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <!-- Private key -->
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Private Key</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Upload Key File</label>
+            <input type="file" id="keyFileInput" name="key_file" class="form-control"
+                   accept=".pem,.key,.txt" />
+            <div class="form-text">Accepted formats: .pem, .key</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Key Password <span class="text-muted fw-normal">(if encrypted)</span></label>
+            <div class="input-group">
+              <input type="password" id="keyPassword" name="key_password" class="form-control"
+                     placeholder="Leave blank for unencrypted keys" autocomplete="off" />
+              <button class="btn btn-outline-secondary" type="button" id="keyPasswordToggle">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="text-center text-muted my-3 fw-semibold small">— or paste below —</div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Private Key PEM</label>
+            <textarea name="key_pem" id="keyPemTextarea" class="form-control font-monospace" rows="6"
+                      placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
+                      style="font-size:0.8rem;"></textarea>
+          </div>
+
+          <hr class="my-4" />
+
+          <!-- Certificate -->
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Certificate</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Upload Certificate File</label>
+            <input type="file" id="certFileInput" name="cert_file" class="form-control"
+                   accept=".pem,.crt,.cer,.p7b,.p7" />
+            <div class="form-text">Accepted: .pem, .crt, .cer, .p7b — bundles and PKCS#7 files are supported.</div>
+          </div>
+
+          <div class="text-center text-muted my-3 fw-semibold small">— or paste below —</div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Certificate PEM</label>
+            <textarea name="cert_pem" id="certPemTextarea" class="form-control font-monospace" rows="8"
+                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                      style="font-size:0.8rem;"></textarea>
+            <div class="form-text">Paste a single certificate or a full PEM bundle. Intermediates will be extracted automatically.</div>
+          </div>
+
+          <!-- AJAX preview panel -->
+          <div id="keypairPreview" class="mb-3" style="display:none;">
+            <div class="card border-info">
+              <div class="card-header py-2" style="background:rgba(13,202,240,.15);">
+                <small class="fw-semibold"><i class="bi bi-search me-1"></i>File Analysis</small>
+              </div>
+              <div class="card-body py-2 small" id="keypairPreviewBody">
+                <span class="spinner-border spinner-border-sm me-1"></span> Analysing…
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4" />
+          <h6 class="text-muted text-uppercase mb-3" style="font-size:0.75rem;letter-spacing:1px;">Certificate Details</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Domain / Common Name</label>
+            <input type="text" id="keypairDomain" name="domain" class="form-control"
+                   placeholder="Auto-detected from certificate CN" />
+            <div class="form-text">Leave blank to use the CN from the certificate. Override if needed.</div>
+          </div>
+
+          {% if chains %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Assign Chain</label>
+            <select id="keypairChainId" name="chain_id" class="form-select">
+              <option value="">— None (auto-create if intermediates found) —</option>
+              {% for c in chains %}
+              <option value="{{ c.id }}">{{ c.name }}{% if c.description %} — {{ c.description }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">If the certificate file contains intermediates, they will be added to this chain (or a new chain will be created).</div>
+          </div>
+          {% endif %}
+
+          <div class="mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="bi bi-key-fill me-2"></i>Import Certificate
+            </button>
+            <a href="{{ url_for('certificates.certificates') }}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const keyFileInput   = document.getElementById('keyFileInput');
+  const keyPemTextarea = document.getElementById('keyPemTextarea');
+  const keyPassword    = document.getElementById('keyPassword');
+  const certFileInput  = document.getElementById('certFileInput');
+  const certPemTextarea = document.getElementById('certPemTextarea');
+  const previewDiv     = document.getElementById('keypairPreview');
+  const previewBody    = document.getElementById('keypairPreviewBody');
+  const domainInput    = document.getElementById('keypairDomain');
+  const chainSelect    = document.getElementById('keypairChainId');
+  const toggleBtn      = document.getElementById('keyPasswordToggle');
+  const csrfToken      = document.querySelector('input[name="csrf_token"]').value;
+  const previewUrl     = "{{ url_for('certificates.certificate_import_keypair_preview') }}";
+
+  toggleBtn.addEventListener('click', function () {
+    const isPassword = keyPassword.type === 'password';
+    keyPassword.type = isPassword ? 'text' : 'password';
+    this.querySelector('i').className = isPassword ? 'bi bi-eye-slash' : 'bi bi-eye';
+  });
+
+  function hasKey()  { return (keyFileInput.files && keyFileInput.files[0]) || keyPemTextarea.value.trim(); }
+  function hasCert() { return (certFileInput.files && certFileInput.files[0]) || certPemTextarea.value.trim(); }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function runPreview() {
+    if (!hasKey() || !hasCert()) { previewDiv.style.display = 'none'; return; }
+
+    previewBody.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing…';
+    previewDiv.style.display = '';
+
+    const fd = new FormData();
+    if (keyFileInput.files && keyFileInput.files[0]) fd.append('key_file', keyFileInput.files[0]);
+    else fd.append('key_pem', keyPemTextarea.value.trim());
+    if (keyPassword.value) fd.append('key_password', keyPassword.value);
+    if (certFileInput.files && certFileInput.files[0]) fd.append('cert_file', certFileInput.files[0]);
+    else fd.append('cert_pem', certPemTextarea.value.trim());
+    fd.append('csrf_token', csrfToken);
+    if (chainSelect) fd.append('chain_id', chainSelect.value);
+
+    fetch(previewUrl, { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) {
+          previewBody.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${esc(data.error)}</span>`;
+          return;
+        }
+
+        if (domainInput && !domainInput.value) domainInput.value = data.leaf.cn;
+
+        const ki = data.private_key;
+        const keyInfo = ki
+          ? `<span class="badge bg-secondary ms-1">${esc(ki.type)}${ki.bits ? '-' + esc(String(ki.bits)) : ''}</span>`
+          : '';
+        const matchIcon = data.leaf.matches_key === true
+          ? '<i class="bi bi-check-circle text-success me-1"></i>'
+          : '<i class="bi bi-x-circle text-danger me-1"></i>';
+
+        let html = `<div class="mb-1"><strong>Private key:</strong>${keyInfo}</div>`;
+        html += `<div class="mb-1"><strong>Certificate:</strong> ${matchIcon}${esc(data.leaf.cn)} <span class="text-muted">(expires ${esc(data.leaf.expiry)})</span>`;
+        if (data.leaf.matches_key === false)
+          html += ' <span class="text-danger fw-semibold">— key mismatch, import will be rejected</span>';
+        html += '</div>';
+
+        if (data.intermediates.length > 0) {
+          html += '<div class="mb-1"><strong>Intermediates:</strong><ul class="mb-1 ps-3">';
+          data.intermediates.forEach(ic => {
+            const badge = ic.is_duplicate
+              ? '<span class="badge bg-secondary ms-1">already in chain</span>'
+              : '<span class="badge bg-success ms-1">new</span>';
+            html += `<li>${esc(ic.cn)}${badge}</li>`;
+          });
+          html += '</ul></div>';
+        }
+
+        if (data.chain_action === 'use_existing')
+          html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>Will use existing chain <strong>${esc(data.chain_name)}</strong></div>`;
+        else if (data.chain_action === 'create')
+          html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>Will create new chain <strong>${esc(data.chain_name)}</strong></div>`;
+        else if (data.chain_action === 'add_to_assigned')
+          html += `<div class="text-muted"><i class="bi bi-diagram-3 me-1"></i>Will add intermediates to chain <strong>${esc(data.chain_name)}</strong></div>`;
+
+        if (data.invalid_count > 0)
+          html += `<div class="text-warning mt-1"><i class="bi bi-exclamation-triangle me-1"></i>${esc(String(data.invalid_count))} block(s) could not be parsed and will be skipped.</div>`;
+
+        previewBody.innerHTML = html;
+      })
+      .catch(() => { previewDiv.style.display = 'none'; });
+  }
+
+  keyFileInput.addEventListener('change', runPreview);
+  keyPemTextarea.addEventListener('blur', runPreview);
+  keyPassword.addEventListener('blur', runPreview);
+  certFileInput.addEventListener('change', runPreview);
+  certPemTextarea.addEventListener('blur', runPreview);
+  if (chainSelect) chainSelect.addEventListener('change', runPreview);
+})();
+</script>
+{% endblock %}
