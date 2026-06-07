@@ -4,3 +4,7 @@ cryptography==46.0.7
 pyjks==20.0.0
 gunicorn==23.0.0
 flask-login==0.6.3
+
+# Documentation tooling (not required for the app itself)
+weasyprint==69.0
+playwright

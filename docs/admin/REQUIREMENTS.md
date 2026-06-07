@@ -17,14 +17,28 @@
 
 ## 1. Operating System
 
+### Ubuntu (recommended)
+
 | Requirement | Value |
 |---|---|
 | **Supported OS** | Ubuntu 24.04 LTS (Noble Numbat) — recommended |
 | **Also supported** | Ubuntu 22.04 LTS (Jammy Jellyfish), Ubuntu 20.04 LTS (Focal Fossa) |
-| **Architecture** | x86_64 (amd64) |
+| **Architecture** | x86_64 (amd64), arm64 (aarch64) |
 | **Install type** | Server (minimal) or standard server image |
 
 Ubuntu 24.04 LTS is the recommended target. The installer (`install.sh`) detects the OS and enforces Ubuntu 20.04 or later.
+
+### RHEL-family
+
+| Requirement | Value |
+|---|---|
+| **Supported OS** | RHEL 9, Rocky Linux 9, AlmaLinux 9, CentOS Stream 9 |
+| **Also supported** | RHEL 8, Rocky Linux 8, AlmaLinux 8 |
+| **Architecture** | x86_64 (amd64), arm64 (aarch64) |
+| **Install type** | Minimal install |
+| **Installer** | `install-rhel.sh` (separate from the Ubuntu `install.sh`) |
+
+RHEL-family deployments require SELinux configuration, which `install-rhel.sh` handles automatically. See the [RHEL section of INSTALL.md](INSTALL.md#rhel--rocky-linux--almalinux) for full instructions.
 
 ---
 
@@ -93,8 +107,8 @@ A **10 GB** disk is sufficient; **20 GB** provides comfortable headroom for log 
 | DigitalOcean | Basic Droplet | 1 vCPU / 1 GB / 25 GB SSD | ~$6/month | Storage included |
 | Linode/Akamai | Nanode | 1 vCPU / 1 GB / 25 GB SSD | ~$5/month | Storage included |
 | Vultr | Cloud Compute | 1 vCPU / 1 GB / 25 GB SSD | ~$6/month | Storage included |
-| AWS | t4g.micro (minimum) | 2 vCPU / 1 GB | ~$6/month | Add ~$1.60/month for 20 GB gp3 EBS; ARM (Graviton2); Ubuntu 24.04 supported |
-| AWS | t4g.small (recommended) | 2 vCPU / 2 GB | ~$12/month | Add ~$1.60/month for 20 GB gp3 EBS; ARM (Graviton2); eligible for Savings Plans |
+| AWS | t4g.micro (minimum) | 2 vCPU / 1 GB | ~$6/month | Add ~$1.60/month for 20 GB gp3 EBS; ARM Graviton2; Ubuntu 24.04 supported |
+| AWS | t4g.small (recommended) | 2 vCPU / 2 GB | ~$12/month | Add ~$1.60/month for 20 GB gp3 EBS; ARM Graviton2; eligible for Savings Plans |
 | Azure | B1s (minimum) | 1 vCPU / 1 GB | ~$8/month | 4 GB managed OS disk included; Standard HDD additional |
 | Azure | B1ms (recommended) | 1 vCPU / 2 GB | ~$15/month | 4 GB managed OS disk included; add Standard SSD for data |
 
@@ -112,59 +126,87 @@ Hetzner CX11 offers the best value for this workload — 2 vCPU and 2 GB RAM wit
 
 ### 3.1 Installed by the Installer
 
-The packages below are **not present in a default Ubuntu 24.04 LTS server install** and are installed automatically by `install.sh`:
+#### Ubuntu (`install.sh`)
 
-| Package | Version | Purpose |
-|---|---|---|
-| `nginx` | Latest LTS | Reverse proxy; listens on `127.0.0.1` only; serves static files directly and forwards dynamic requests to gunicorn via Unix socket |
-| `python3-pip` | Latest | pip package manager used to install the Python virtual environment dependencies |
-| `python3-venv` | Latest | Creates the isolated Python virtual environment at `/opt/ssl-manager/venv` |
-| `python3-dev` | Latest | C header files required to compile the `cryptography` package's native extensions |
-| `gcc` | Latest | C compiler required to build the `cryptography` package during `pip install` |
-| `sqlite3` | Latest | SQLite CLI tool; used by `backup.sh` for WAL checkpointing, the `.backup` command, and post-backup integrity checks |
+The packages below are installed automatically by `install.sh`:
 
-> **Note:** `python3` and `openssl` are present in a default Ubuntu 24.04 LTS server install and are listed here for completeness only — the installer includes them in the `apt-get install` call as an explicit dependency declaration.
+| Package | Purpose |
+|---|---|
+| `nginx` | Reverse proxy; listens on `127.0.0.1` only; serves static files directly and forwards dynamic requests to gunicorn via Unix socket |
+| `python3-pip` | pip package manager used to install the Python virtual environment dependencies |
+| `python3-venv` | Creates the isolated Python virtual environment at `/opt/ssl-manager/venv` |
+| `python3-dev` | C header files required to compile the `cryptography` package's native extensions |
+| `gcc` | C compiler required to build the `cryptography` package during `pip install` |
 
-| Package | Included in Ubuntu 24.04 default | Role in SSL Manager |
-|---|---|---|
-| `python3` | Yes (3.12) | Runtime for the Flask application |
-| `openssl` | Yes | CSR generation, P7B export, certificate inspection |
+> **`python3` and `openssl`** are present in a default Ubuntu 24.04 LTS server install; the installer includes them in the `apt-get install` call as an explicit dependency declaration.
+>
+> **`sqlite3`** (the CLI tool) is required by `backup.sh` for WAL checkpointing and database integrity checks, but is **not installed automatically** by `install.sh`. On Ubuntu 24.04 minimal server it may not be present. If backups fail with `sqlite3 not found`, install it manually:
+> ```bash
+> sudo apt-get install -y sqlite3
+> ```
+
+#### RHEL-family (`install-rhel.sh`)
+
+The packages below are installed automatically by `install-rhel.sh`:
+
+| Package | Purpose |
+|---|---|
+| `nginx` | Reverse proxy (same role as Ubuntu) |
+| `python3-pip` | pip package manager |
+| `python3-devel` | C header files for native extension builds (RHEL equivalent of `python3-dev`) |
+| `gcc` | C compiler |
+| `policycoreutils-python-utils` | Provides `semanage`, used to configure SELinux file contexts and port permissions |
+| `epel-release` | Extra Packages for Enterprise Linux — installed automatically on Rocky/AlmaLinux/CentOS Stream; skipped on registered RHEL (use subscription-manager instead) |
+
+> **`python3` and `openssl`** are present in RHEL 9 / Rocky 9 minimal installs.
 
 ### 3.2 Recommended Hardening Packages
 
-The following packages are **not installed by `install.sh`** because they affect system-wide services and require manual review before enabling. They are documented in the README under **Host hardening**.
+The following packages are **not installed by either installer** because they affect system-wide services and require manual review before enabling.
 
-| Package | Ubuntu 24.04 Default | Purpose |
-|---|---|---|
-| `ufw` | Included, inactive | Host firewall; restrict inbound traffic to SSH (22) only — all other ports blocked |
-| `fail2ban` | Not included | Monitors nginx and sshd logs; automatically bans IPs that repeatedly fail authentication |
-| `unattended-upgrades` | Included, inactive | Automatically installs security updates; configured to apply patches without manual intervention |
+| Package | Ubuntu | RHEL-family | Purpose |
+|---|---|---|---|
+| `ufw` | Included, inactive | Not available (use `firewalld`) | Host firewall; restrict inbound traffic to SSH only |
+| `firewalld` | Not default | Included, active | RHEL host firewall; restrict inbound traffic to SSH only |
+| `fail2ban` | Not included | Not included | Monitors nginx and sshd logs; bans IPs that repeatedly fail authentication |
+| `unattended-upgrades` | Included, inactive | Not available (use `dnf-automatic`) | Automatically installs security updates |
+| `dnf-automatic` | Not available | Not included | RHEL equivalent of unattended-upgrades |
 
 **Optional — JKS export format:**
 
-| Package | Ubuntu 24.04 Default | Purpose |
-|---|---|---|
-| `default-jdk-headless` | Not included | Provides `keytool`, which is required to generate Java KeyStore (`.jks`) files. If not installed, the JKS download button returns an error. All other export formats continue to work. |
+| Package | Ubuntu | RHEL-family | Purpose |
+|---|---|---|---|
+| `default-jdk-headless` | Not included | — | Provides `keytool` for Java KeyStore (`.jks`) export |
+| `java-17-openjdk-headless` | — | Not included | RHEL equivalent; provides `keytool` |
 
-Install with:
+Install on Ubuntu:
 ```bash
 sudo apt-get install -y default-jdk-headless
 ```
+
+Install on RHEL-family:
+```bash
+sudo dnf install -y java-17-openjdk-headless
+```
+
+If `keytool` is not installed, the JKS download button returns an error. All other export formats continue to work.
 
 ---
 
 ## 4. Python Packages
 
-All Python dependencies are installed into an isolated virtual environment at `/opt/ssl-manager/venv` and are **not installed system-wide**. The `pip install` step runs during `install.sh` and again during `--upgrade`.
+All Python dependencies are installed into an isolated virtual environment at `/opt/ssl-manager/venv` and are **not installed system-wide**.
 
 | Package | Version | Purpose |
 |---|---|---|
 | `Flask` | 3.1.3 | Web framework — routing, templating, session management |
 | `Flask-SQLAlchemy` | 3.1.1 | SQLAlchemy ORM integration for Flask; manages the SQLite connection pool |
 | `Flask-Login` | 0.6.3 | User session management, login/logout, `current_user` context, `@login_required` decorator |
-| `cryptography` | 46.0.5 | RSA key generation, CSR construction, certificate parsing, PKCS#12 export; uses OpenSSL bindings |
+| `cryptography` | 46.0.7 | RSA key generation, CSR construction, certificate parsing, PKCS#12 export; uses OpenSSL bindings |
 | `pyjks` | 20.0.0 | Java KeyStore (JKS) file generation for the `.jks` download format |
 | `gunicorn` | 23.0.0 | Production WSGI server; runs the Flask app as multiple worker processes behind the nginx Unix socket |
+
+The `pip install` step runs during `install.sh`/`install-rhel.sh` and again during `--upgrade`.
 
 ---
 
@@ -177,6 +219,7 @@ SSL Manager is designed to be **unreachable from the network** by default. No in
 | All interfaces | 22 | TCP | Inbound | SSH — required for tunnel access and server administration |
 | `127.0.0.1` | 5001 (configurable) | TCP | Loopback only | nginx listener; not exposed to the network |
 | `/run/ssl-manager/ssl-manager.sock` | — | Unix socket | Internal | nginx → gunicorn communication |
+| Any | 25, 465, or 587 | TCP | **Outbound** | SMTP — only required if email (password reset) is configured |
 
 **Remote access** is provided exclusively via SSH port forwarding:
 
@@ -184,13 +227,21 @@ SSL Manager is designed to be **unreachable from the network** by default. No in
 ssh -L 5001:127.0.0.1:5001 user@your-server
 ```
 
-No HTTP/HTTPS ports are opened to the network. A firewall rule allowing only port 22 inbound is sufficient.
+No HTTP/HTTPS ports are opened to the network. A firewall rule allowing only port 22 inbound is sufficient for all functionality except outbound email.
+
+**Outbound SMTP** is only needed if the password reset feature is configured. The specific port depends on your mail provider:
+
+| Auth method | Typical port |
+|---|---|
+| STARTTLS | 587 |
+| SSL/TLS | 465 |
+| Plain SMTP (internal relay, not recommended) | 25 |
 
 ---
 
 ## 6. File System Layout
 
-All paths created by `install.sh`:
+All paths created by `install.sh` / `install-rhel.sh`:
 
 | Path | Owner | Mode | Purpose |
 |---|---|---|---|
@@ -207,5 +258,17 @@ All paths created by `install.sh`:
 | `/etc/systemd/system/ssl-manager.service` | `root` | `644` | gunicorn systemd service unit |
 | `/etc/systemd/system/ssl-manager-backup.service` | `root` | `644` | Backup job systemd unit (Type=oneshot) |
 | `/etc/systemd/system/ssl-manager-backup.timer` | `root` | `644` | Backup timer unit (daily at 02:00, Persistent=true) |
+
+**Ubuntu-specific paths:**
+
+| Path | Owner | Mode | Purpose |
+|---|---|---|---|
 | `/etc/nginx/sites-available/ssl-manager` | `root` | `644` | nginx reverse proxy configuration |
 | `/etc/nginx/conf.d/ssl-manager-ratelimit.conf` | `root` | `644` | nginx rate-limit zone definition (10 req/s per IP) |
+
+**RHEL-family-specific paths:**
+
+| Path | Owner | Mode | Purpose |
+|---|---|---|---|
+| `/etc/nginx/conf.d/ssl-manager.conf` | `root` | `644` | nginx reverse proxy configuration (RHEL uses conf.d; no sites-available) |
+| `/etc/nginx/conf.d/ssl-manager-ratelimit.conf` | `root` | `644` | nginx rate-limit zone definition |

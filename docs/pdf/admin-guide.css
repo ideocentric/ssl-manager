@@ -1,0 +1,229 @@
+/*
+ * admin-guide.css — WeasyPrint PDF stylesheet for SSL Manager Administrator Guide
+ *
+ * Loaded by docs/generate_pdf.py on top of pandoc's default HTML styles.
+ * Uses CSS @page rules to control running headers and page-number footers
+ * without any browser involvement, so no system file paths appear in output.
+ *
+ * Tested with WeasyPrint 69 + pandoc 3.x.
+ */
+
+/* ── Page layout ─────────────────────────────────────────────────────────── */
+
+@page {
+    size: A4;
+    margin: 2.2cm 2.2cm 2.8cm 2.2cm;
+
+    @top-center {
+        content: "SSL Manager — Administrator Guide";
+        font-family: -apple-system, "Segoe UI", sans-serif;
+        font-size: 8.5pt;
+        color: #888;
+        border-bottom: 0.5pt solid #ddd;
+        padding-bottom: 3pt;
+        vertical-align: bottom;
+    }
+
+    @bottom-center {
+        content: counter(page) " / " counter(pages);
+        font-family: -apple-system, "Segoe UI", sans-serif;
+        font-size: 8.5pt;
+        color: #888;
+        border-top: 0.5pt solid #ddd;
+        padding-top: 3pt;
+        vertical-align: top;
+    }
+}
+
+/* Suppress running header on the very first page (title + intro) */
+@page :first {
+    @top-center { content: none; border: none; }
+}
+
+/* ── Base typography ─────────────────────────────────────────────────────── */
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.55;
+    color: #1a1a1a;
+    background: #fff;
+    margin: 0;
+    padding: 0;
+}
+
+/* ── Headings ────────────────────────────────────────────────────────────── */
+
+h1 {
+    font-size: 26pt;
+    font-weight: 700;
+    color: #0d1117;
+    margin: 0 0 0.4em;
+    border-bottom: 2pt solid #0d6efd;
+    padding-bottom: 0.2em;
+    page-break-before: avoid;
+}
+
+h2 {
+    font-size: 15pt;
+    font-weight: 600;
+    color: #0d1117;
+    margin: 0 0 0.5em;
+    border-bottom: 0.5pt solid #dee2e6;
+    padding-bottom: 0.15em;
+    page-break-before: always;
+    page-break-after: avoid;
+}
+
+/* Don't force a new page for the very first section */
+body > h2:first-of-type,
+#TOC + h2,
+hr + h2 {
+    page-break-before: avoid;
+}
+
+h3 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: #212529;
+    margin: 1.2em 0 0.4em;
+    page-break-after: avoid;
+}
+
+h4 {
+    font-size: 10pt;
+    font-weight: 600;
+    color: #495057;
+    margin: 1em 0 0.3em;
+    page-break-after: avoid;
+}
+
+/* ── Paragraphs & lists ──────────────────────────────────────────────────── */
+
+p { margin: 0 0 0.7em; orphans: 3; widows: 3; }
+
+ul, ol { margin: 0 0 0.7em 1.4em; padding: 0; }
+li { margin-bottom: 0.2em; }
+li > ul, li > ol { margin-top: 0.2em; margin-bottom: 0.2em; }
+
+/* ── Table of contents ───────────────────────────────────────────────────── */
+
+nav#TOC {
+    background: #f8f9fa;
+    border: 0.5pt solid #dee2e6;
+    border-radius: 4pt;
+    padding: 1em 1.4em;
+    margin: 1.5em 0 2em;
+    page-break-inside: avoid;
+}
+
+nav#TOC h2 {
+    font-size: 11pt;
+    border: none;
+    padding: 0;
+    margin: 0 0 0.6em;
+    page-break-before: avoid;
+    color: #495057;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+nav#TOC ul { margin: 0; list-style: none; padding: 0; }
+nav#TOC li { margin: 0.2em 0; font-size: 9.5pt; }
+nav#TOC li > ul { margin-left: 1.2em; }
+nav#TOC a { color: #0d6efd; text-decoration: none; }
+
+/* ── Horizontal rules ────────────────────────────────────────────────────── */
+
+hr {
+    border: none;
+    border-top: 0.5pt solid #dee2e6;
+    margin: 1.5em 0;
+}
+
+/* ── Images ──────────────────────────────────────────────────────────────── */
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 1em auto;
+    border: 0.5pt solid #dee2e6;
+    border-radius: 4pt;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin: 0.8em 0 1em;
+    page-break-inside: auto;
+}
+
+thead { display: table-header-group; }
+
+th {
+    background: #f0f3f6;
+    font-weight: 600;
+    text-align: left;
+    padding: 5pt 8pt;
+    border: 0.5pt solid #c8cdd3;
+}
+
+td {
+    padding: 4pt 8pt;
+    border: 0.5pt solid #dee2e6;
+    vertical-align: top;
+}
+
+tr:nth-child(even) td { background: #f8f9fa; }
+
+/* ── Code ────────────────────────────────────────────────────────────────── */
+
+code {
+    font-family: "SFMono-Regular", "Courier New", Courier, monospace;
+    font-size: 8.5pt;
+    background: #f0f3f6;
+    padding: 1pt 4pt;
+    border-radius: 3pt;
+    color: #c0392b;
+}
+
+pre {
+    background: #f0f3f6;
+    border: 0.5pt solid #dee2e6;
+    border-left: 3pt solid #6c757d;
+    border-radius: 4pt;
+    padding: 0.8em 1em;
+    font-size: 8pt;
+    line-height: 1.45;
+    overflow: auto;
+    page-break-inside: avoid;
+    margin: 0.8em 0;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    color: inherit;
+    font-size: inherit;
+}
+
+/* ── Block quotes / callouts ─────────────────────────────────────────────── */
+
+blockquote {
+    margin: 0.8em 0;
+    padding: 0.6em 1em;
+    background: #f8f9fa;
+    border-left: 3pt solid #0d6efd;
+    border-radius: 0 4pt 4pt 0;
+    color: #495057;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+}
+
+blockquote p { margin: 0; }
+blockquote p + p { margin-top: 0.4em; }

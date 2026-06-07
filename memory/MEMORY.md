@@ -4,3 +4,4 @@
 - [Project State](project_state.md) — Current branch status, recent commits, live RHEL 9 deployment notes, SELinux issues resolved
 - [Plan: Password Reset + SMTP](plan_password_reset_smtp.md) — Full implementation plan for feature/password-reset-smtp branch (shipped 2026-06-04)
 - [Plan: Smart Bundle Import](plan_smart_bundle_import.md) — Robust leaf ID via BasicConstraints, chain matching, AJAX preview, P7B support — feature/smart-bundle-import
+- [Screenshot Script](project_screenshot_script.md) — Playwright script at docs/take_screenshots.py regenerates all 34 doc screenshots; fixes fixed-footer overlap via viewport expansion

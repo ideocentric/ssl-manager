@@ -211,6 +211,25 @@ sudo bash /opt/ssl-manager/install.sh --upgrade
 
 ---
 
+## Network considerations
+
+### Outbound SMTP
+
+The Terraform NSG allows **all outbound traffic** by default, so no additional rule is needed for email delivery. However, some Azure subscriptions or policies restrict outbound traffic. If password reset emails are not delivered, verify that outbound TCP on port 587 (STARTTLS) or 465 (SSL) is not blocked by a subscription-level Azure Policy or a custom NSG rule.
+
+To list effective outbound security rules for the VM's NIC:
+
+```bash
+az network nic list-effective-nsg \
+  --resource-group ssl-manager-rg \
+  --name $(az network nic list --resource-group ssl-manager-rg \
+           --query "[0].name" -o tsv) \
+  --query "effectiveSecurityRules[?direction=='Outbound']" \
+  --output table
+```
+
+---
+
 ## Tear down
 
 ```bash
