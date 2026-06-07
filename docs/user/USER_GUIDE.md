@@ -163,6 +163,8 @@ Navigate to `http://localhost:5001` in your browser while the SSH tunnel is acti
 - **First visit ever:** you are redirected to the **Setup** page to create the initial administrator account. Fill in a username, email, and password and click **Create Admin Account**. You are logged in automatically.
 - **All subsequent visits:** you are presented with the login form. Enter your username and password.
 
+![Login page](screenshots/02-login/login_page.png)
+
 If your session expires you are returned to the login page automatically.
 
 ---
@@ -182,6 +184,8 @@ After logging in you land on the **Certificates** page. The navbar at the top pr
 | **Audit Log** | View a history of all actions taken in the app *(superadmin only)* |
 | **Logout** | End your session |
 
+![Certificates list — dashboard overview](screenshots/03-dashboard/certificates_list.png)
+
 ---
 
 ## 4. Certificate Profiles
@@ -192,6 +196,8 @@ You can have as many profiles as you need. For example:
 - `Acme Corp — US` for US-based certificates
 - `Acme EU GmbH` for European subsidiary certificates
 - `Internal Services` with a different org unit
+
+![Profiles list](screenshots/04-profiles/profiles_list.png)
 
 ### 4.1 Create a Profile
 
@@ -211,6 +217,8 @@ You can have as many profiles as you need. For example:
 | **Email Address** | Contact email embedded in the CSR | `ssl@acme.com` |
 
 4. Click **Save Profile**.
+
+![New profile form](screenshots/04-profiles/profile_new_form.png)
 
 ### 4.2 Set the Default Profile
 
@@ -240,6 +248,8 @@ Common scenarios for multiple chains:
 - You use different Certificate Authorities for different certificate types.
 - Your CA rotated their intermediate certificate — you need the old chain for existing certs and the new chain for new ones.
 
+![Chains list](screenshots/05-chains/chains_list.png)
+
 ### 5.1 Create a Chain
 
 1. Navigate to **Chains** in the navbar.
@@ -248,6 +258,8 @@ Common scenarios for multiple chains:
 4. Click **Save**.
 
 You are taken to the **Chain Detail** page where you add the individual CA certificates.
+
+![Chain detail page](screenshots/05-chains/chain_detail.png)
 
 ### 5.2 Add Intermediate Certificates
 
@@ -261,6 +273,8 @@ From the **Chain Detail** page, click **Add Certificate**. Fill in:
 
 Click **Save**. Repeat for each certificate in the chain (typically an intermediate and a root).
 
+![Add certificate form](screenshots/05-chains/chain_add_cert_form.png)
+
 Use the **▲ / ▼** chevron buttons on each row to reorder entries on the Chain Detail page.
 
 ### 5.3 Import a Bundle
@@ -272,6 +286,8 @@ If your CA provides a single file containing multiple certificates concatenated 
 3. Review the detected certificates and click **Import**.
 
 Each certificate is added as a separate entry in the chain, ordered from the first PEM block to the last.
+
+![Import bundle page](screenshots/05-chains/chain_import_bundle.png)
 
 > **End-entity certificates are skipped:** Chains should only contain CA certificates (intermediates and roots). If the bundle includes a domain/leaf certificate, SSL Manager detects it automatically and skips it with a warning. Only CA certificates are imported into the chain.
 
@@ -286,6 +302,8 @@ SSL Manager includes a built-in Certificate Authority module. An internal CA let
 - Lab and staging environments where you control the full trust chain.
 
 Each CA is a self-signed root CA. You can create multiple CAs — for example one per environment (dev, staging, prod) or one per team.
+
+![CAs list](screenshots/06-ca/ca_list.png)
 
 ### 6.1 Create a CA
 
@@ -308,6 +326,8 @@ Each CA is a self-signed root CA. You can create multiple CAs — for example on
 
 4. Click **Create CA**.
 
+![New CA form](screenshots/06-ca/ca_new_form.png)
+
 The application generates an RSA private key (which never leaves the server) and a self-signed CA certificate. You are taken to the **CA Detail** page.
 
 > **Key security note:** The CA private key is stored on the server alongside certificate private keys. Treat it with the same sensitivity as any other private key material. See the [backup note in the installation guide](../admin/INSTALL.md) for recommendations on securing backup archives.
@@ -324,6 +344,8 @@ Any certificate with status **Pending Signing** can be signed by an internal CA 
 4. Click **Sign** for the certificate you want to sign.
 
 The certificate status changes to **Active** and the expiry date is set automatically.
+
+![CA detail — Sign Pending Certificates](screenshots/06-ca/ca_detail.png)
 
 **From the Certificate Detail page:**
 
@@ -356,6 +378,10 @@ Deleting a CA removes its private key and certificate from SSL Manager. **Certif
 
 ## 7. Certificate Lifecycle
 
+The **Import ▾** dropdown on the Certificates page groups all import paths in one place alongside the **New Certificate** button.
+
+![Import dropdown](screenshots/07-lifecycle/07-0_import_dropdown.png)
+
 ### 7.1 Create a New Certificate
 
 1. From the **Certificates** page, click **New Certificate**.
@@ -372,6 +398,8 @@ Deleting a CA removes its private key and certificate from SSL Manager. **Certif
 
 4. Click **Generate RSA Key & CSR**.
 
+![New certificate form](screenshots/07-lifecycle/07-1_cert_new_form.png)
+
 The application generates a new RSA private key (which never leaves the server) and a Certificate Signing Request. You are taken to the **Certificate Detail** page. The status shows **Pending Signing**.
 
 ### 7.2 Download and Submit the CSR
@@ -384,6 +412,8 @@ The CSR is what you send to your Certificate Authority (CA) to request a signed 
 4. Complete any domain validation (DCV) steps required by the CA (email, DNS record, or file upload).
 5. Once the CA approves and issues the certificate, download it. You can download either the **domain certificate only** or a **bundle that includes intermediates** — SSL Manager handles both. The file is usually a `.crt`, `.pem`, or `.ca-bundle` file.
 
+![Certificate detail — pending signing, showing CSR](screenshots/07-lifecycle/07-2_cert_detail_pending.png)
+
 > **Keep the original certificate record open.** The private key is stored server-side and is already paired with this CSR. You must upload the signed certificate back to the same certificate record.
 
 ### 7.3 Upload the Signed Certificate
@@ -394,6 +424,9 @@ The CSR is what you send to your Certificate Authority (CA) to request a signed 
    - A PEM bundle containing the certificate and intermediate CAs concatenated together
    - A PKCS#7 bundle (`.p7b` / `.p7`) — common from GlobalSign and some enterprise CAs
 3. A **File Analysis** preview panel appears automatically, showing what was detected — the leaf certificate, any intermediates, and how the chain will be handled — before you commit.
+
+![Upload section with File Analysis preview](screenshots/07-lifecycle/07-3_cert_upload_with_preview.png)
+
 4. Click **Save Certificate**.
 
 The application validates the certificate, extracts the expiry date, and stores the leaf certificate. The status changes to **Active**.
@@ -410,6 +443,8 @@ The application validates the certificate, extracts the expiry date, and stores 
 
 All download formats are now available.
 
+![Certificate detail — active, showing all download formats](screenshots/07-lifecycle/07-4_cert_detail_active_full.png)
+
 ### 7.4 Import an External CSR
 
 Some systems — network appliances, load balancers, identity platforms such as Cisco ISE — generate their own private key and CSR internally and export only the CSR for signing. In this case you do not have access to the private key, but you still need a signed certificate returned to the device.
@@ -420,6 +455,8 @@ Use **Import CSR** for this workflow:
 2. Either paste the CSR PEM block (including the `-----BEGIN CERTIFICATE REQUEST-----` header and footer) into the text area, or upload the `.csr` file directly.
 3. Optionally assign a certificate chain.
 4. Click **Import CSR**.
+
+![Import CSR form](screenshots/07-lifecycle/07-4_import_csr_form.png)
 
 SSL Manager parses the CSR, extracts the Common Name and Subject Alternative Names, and creates a certificate record with status **Pending Signing**. The private key is **not** stored — it remains on the originating device.
 
@@ -452,6 +489,9 @@ Use this when you already have a certificate and its private key bundled togethe
 1. On the **Certificates** page, open the **Import ▾** dropdown and click **Import P12 / PFX**.
 2. Click **Choose File** and select your `.p12` or `.pfx` file.
 3. Enter the **P12 Password**. As you type, a **File Analysis** preview appears showing the private key type, the certificate details, any intermediates, and how the chain will be handled.
+
+![Import P12 form with File Analysis preview](screenshots/07-lifecycle/07-5_import_p12_with_preview.png)
+
 4. Optionally override the **Domain / Common Name** (leave blank to use the CN from the certificate).
 5. Optionally select a chain to assign.
 6. Click **Import P12**.
@@ -468,6 +508,9 @@ Use this when you have a private key and a signed certificate as separate PEM fi
 2. Upload the **private key file** (`.pem` or `.key`), or paste the key PEM into the text area. If the key is encrypted, enter the key password.
 3. Upload the **certificate file**, or paste the PEM into the text area. This can be a single certificate, a PEM bundle with intermediates, or a `.p7b` file.
 4. Once both are provided, a **File Analysis** preview appears confirming the key and certificate match, showing any detected intermediates, and describing the chain action.
+
+![Import keypair form with File Analysis preview](screenshots/07-lifecycle/07-6_import_keypair_with_preview.png)
+
 5. Optionally override the domain and assign a chain.
 6. Click **Import Certificate**.
 
@@ -479,9 +522,13 @@ Use this when you have a private key and a signed certificate as separate PEM fi
 
 The **Certificates** page lists all certificates with their domain, status, expiry, SANs count, and creation date.
 
+![Certificates list — default view](screenshots/08-browsing/cert_list_default.png)
+
 ### Sorting
 
 Click any column header to sort by that column. Click again to reverse the sort direction. An arrow icon indicates the active sort column. The default sort is **Created** (newest first).
+
+![Certificates list sorted by expiry — oldest first](screenshots/08-browsing/cert_list_sorted_expiry.png)
 
 ### Searching
 
@@ -504,6 +551,8 @@ The counter on the right of the search bar shows how many certificates match (e.
 - Type `2025-` to list certificates expiring or created in 2025.
 - Type `acme` to find all certificates tied to that organisation.
 
+![Search filtering to show only matching certificates](screenshots/08-browsing/cert_list_search_active.png)
+
 ### Rows per page
 
 Use the **10 / 20 / 50 / All** button group (top-right of the toolbar) to control how many certificates are shown at once. The default is 20. When more rows exist than the selected page size, a page navigation bar appears below the table.
@@ -513,6 +562,8 @@ Use the **10 / 20 / 50 / All** button group (top-right of the toolbar) to contro
 ## 9. Downloading Certificates
 
 Once a signed certificate has been uploaded, the **Downloads** section on the **Certificate Detail** page offers several formats. Choose the format that matches your server or platform.
+
+![Certificate detail — downloads section](screenshots/09-downloads/cert_detail_downloads.png)
 
 ### Full Chain PEM
 
@@ -580,6 +631,9 @@ Use for: Java `keytool` imports, some embedded devices, and systems that require
 Certificates typically need to be renewed annually. SSL Manager's renew/rekey workflow generates a fresh private key and CSR while keeping your existing certificate active until you are ready to replace it.
 
 1. On the **Certificate Detail** page, click **Renew / Rekey**.
+
+![Renew / Rekey form — pre-filled from the existing certificate](screenshots/10-renew/renew_form.png)
+
 2. The form pre-fills with the existing domain, SANs, subject fields, and chain assignment. Edit any field that has changed (e.g. updated organisation name or a new SAN).
 3. Click **Generate RSA Key & CSR**.
 
@@ -596,6 +650,8 @@ A new certificate record is created with status **Pending Signing**. Your origin
 
 User management is available to **superadmin** accounts only. Navigate to **Users** in the navbar.
 
+![Users list](screenshots/11-users/users_list.png)
+
 ### Roles
 
 | Role | Capabilities |
@@ -609,6 +665,8 @@ User management is available to **superadmin** accounts only. Navigate to **User
 2. Fill in username, email, password, confirm password, and role.
 3. Click **Create User**.
 
+![Add user form](screenshots/11-users/user_add_form.png)
+
 ### Edit a User
 
 Click the pencil icon next to a user. You can update:
@@ -617,6 +675,8 @@ Click the pencil icon next to a user. You can update:
 - Active status — deactivating a user prevents login without deleting the account
 
 To change a password, fill in the **New Password** and **Confirm Password** fields. Leave them blank to keep the current password.
+
+![Edit user form](screenshots/11-users/user_edit_form.png)
 
 ### Delete a User
 
@@ -641,9 +701,13 @@ The **Audit Log** is available to **superadmin** accounts only. Navigate to **Au
 
 Every action taken in the application is recorded — logins, certificate creation, signing, downloads, user changes, and automated system events such as backups.
 
+![Audit log](screenshots/12-audit/audit_log.png)
+
 ### Searching
 
 Type in the search bar to filter log entries in real time across all columns (user, action, resource, result, and detail). Click the **✕** button or clear the search box to reset.
+
+![Audit log filtered by search term](screenshots/12-audit/audit_log_search.png)
 
 ### Sorting
 
