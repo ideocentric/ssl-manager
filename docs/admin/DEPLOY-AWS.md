@@ -228,6 +228,23 @@ sudo bash /opt/ssl-manager/install.sh --upgrade
 
 ---
 
+## Network considerations
+
+### Outbound SMTP
+
+The default Terraform security group allows **all outbound traffic**, so no additional rule is needed for email delivery. However, some AWS accounts or VPCs have outbound restrictions. If password reset emails are not delivered, verify that outbound TCP on port 587 (STARTTLS) or 465 (SSL) is not blocked by a VPC Network ACL or an account-level firewall policy.
+
+To check the effective outbound rules on the instance's security group:
+
+```bash
+aws ec2 describe-security-groups \
+  --group-ids $(terraform output -raw security_group_id) \
+  --query "SecurityGroups[*].IpPermissionsEgress" \
+  --output table
+```
+
+---
+
 ## Tear down
 
 ```bash

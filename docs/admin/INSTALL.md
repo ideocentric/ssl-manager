@@ -1,17 +1,23 @@
+<!--
+  This guide is built into docs/user/../admin/../ (relative path kept for cross-links).
+  PDF artifact: built by docs/generate_pdf.py as part of SSL_Manager_Admin_Guide.pdf.
+  See docs/generate_pdf.py for the full procedure.
+-->
 # SSL Manager — Installation Guide
 
 ## Deployment Options
 
 | Method | Best for |
 |---|---|
-| [Bare metal / Ubuntu server](#bare-metal--ubuntu-server) | Physical hardware, on-premises VMs, self-managed VPS |
+| [Bare Metal / Ubuntu Server](#bare-metal--ubuntu-server) | Physical hardware, on-premises VMs, self-managed VPS |
+| [RHEL / Rocky Linux / AlmaLinux](#rhel--rocky-linux--almalinux) | Red Hat-based enterprise or on-premises environments |
 | [AWS (EC2)](#aws-ec2) | Existing AWS accounts, consolidated billing, Graviton cost savings |
 | [Azure (VM)](#azure-vm) | Existing Azure accounts, enterprise agreements, Azure credits |
 | [Docker (local development)](#docker-local-development) | Development, testing, and feature validation — not for production |
 
 Cloud deployments (AWS and Azure) require Terraform and the relevant cloud CLI. See [Cloud Deployment Prerequisites](#cloud-deployment-prerequisites) for installation instructions covering macOS, Linux, and Windows — including [SSH key generation](#ssh-key-pair) for all platforms and [server-side user management](#managing-ssh-users-on-the-server).
 
-All production methods (bare metal, AWS, Azure) share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [REQUIREMENTS.md](REQUIREMENTS.md) for hardware sizing guidance.
+All production methods share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [REQUIREMENTS.md](REQUIREMENTS.md) for hardware sizing guidance.
 
 ---
 
@@ -56,7 +62,7 @@ The installer prompts for three values:
 
 The installer:
 
-1. Installs system packages (`nginx`, `sqlite3`, `python3-pip`, `python3-venv`, `gcc`, `python3-dev`)
+1. Installs system packages (`nginx`, `python3-pip`, `python3-venv`, `gcc`, `python3-dev`)
 2. Creates the `ssl-manager` service account (no login shell, no home directory)
 3. Creates all directories with enforced ownership and permissions
 4. Copies application files to `/opt/ssl-manager/`
@@ -65,6 +71,8 @@ The installer:
 7. Installs and starts the `ssl-manager` systemd service
 8. Configures nginx as a reverse proxy with rate limiting
 9. Installs and enables the `ssl-manager-backup.timer` for daily database backups
+
+> **sqlite3:** The backup script requires the `sqlite3` CLI. Ubuntu 24.04 minimal server may not include it. If the first scheduled backup fails, install it with `sudo apt-get install -y sqlite3`.
 
 ### 3. Verify the service is running
 
@@ -144,8 +152,6 @@ sudo systemctl restart fail2ban
 sudo dpkg-reconfigure --priority=low unattended-upgrades
 ```
 
-See [README.md — Host hardening](../../README.md#host-hardening) for the complete hardening checklist including SSH configuration and sysctl settings.
-
 ### Service management
 
 ```bash
@@ -172,7 +178,7 @@ After pulling or transferring updated code:
 sudo bash install.sh --upgrade
 ```
 
-The upgrade script backs up the database, copies updated application files, reinstalls Python dependencies, and restarts the service.
+The upgrade script backs up the database, copies updated application files, reinstalls Python dependencies, and restarts the service. Schema migrations run automatically on the next service start — no manual SQL steps are required. See [Upgrading from Previous Versions](#upgrading-from-previous-versions) for version-specific notes.
 
 ### Uninstalling
 
@@ -181,6 +187,191 @@ sudo bash install.sh --uninstall
 ```
 
 Removes the service, application files, nginx config, and optionally the database and service user. The database at `/var/lib/ssl-manager/` is not deleted unless explicitly confirmed.
+
+---
+
+## RHEL / Rocky Linux / AlmaLinux
+
+Use this method for RHEL 8/9, Rocky Linux 8/9, AlmaLinux 8/9, or CentOS Stream 9. The RHEL installer (`install-rhel.sh`) handles SELinux configuration and `dnf`-based package management automatically.
+
+### Requirements
+
+- RHEL 9 / Rocky Linux 9 / AlmaLinux 9 (recommended), or 8-series equivalents
+- Root or `sudo` access
+- Outbound internet access (for `dnf` and `pip`)
+- Minimum: 1 vCPU, 1 GB RAM, 10 GB disk
+- Recommended: 1–2 vCPU, 2 GB RAM, 20 GB disk
+- **Registered RHEL only:** An active Red Hat subscription with the AppStream and BaseOS repositories enabled
+
+### 1. Get the code
+
+```bash
+git clone https://github.com/your-org/ssl-manager.git
+cd ssl-manager
+```
+
+Or transfer the files to the server:
+
+```bash
+scp -r ssl-manager/ user@your-server:~/ssl-manager
+```
+
+### 2. Run the installer
+
+```bash
+sudo bash install-rhel.sh
+```
+
+The installer prompts for the same three values as the Ubuntu installer (port, worker count, secret key).
+
+The installer additionally:
+
+1. Enables EPEL (on Rocky/AlmaLinux/CentOS Stream; skipped on registered RHEL)
+2. Installs `policycoreutils-python-utils` for SELinux management
+3. Configures SELinux to allow nginx to communicate with the gunicorn Unix socket:
+   - Sets `httpd_var_run_t` file context on the socket directory
+   - Enables `httpd_can_network_connect` boolean
+   - Adds the chosen port to the `http_port_t` SELinux port type
+4. Writes the nginx config to `/etc/nginx/conf.d/` (RHEL uses `conf.d`; there is no `sites-available`/`sites-enabled`)
+5. Uses `nginx` as the nginx user (not `www-data` as on Ubuntu)
+
+> **SELinux note:** If you later change the nginx port after installation, re-run the SELinux port permission manually:
+> ```bash
+> sudo semanage port -a -t http_port_t -p tcp <new-port>
+> sudo systemctl restart nginx
+> ```
+
+### 3. Verify the service is running
+
+```bash
+sudo systemctl status ssl-manager
+sudo systemctl status ssl-manager-backup.timer
+```
+
+### 4. Connect via SSH tunnel
+
+Identical to the Ubuntu procedure — from your local machine:
+
+```bash
+ssh -L 5001:127.0.0.1:5001 user@your-server
+```
+
+Open `http://localhost:5001` and complete the first-run setup.
+
+### 5. Recommended post-install hardening
+
+**Firewall (firewalld):**
+
+```bash
+# Allow SSH only — all other inbound ports are blocked by default on RHEL
+sudo firewall-cmd --permanent --add-service=ssh
+sudo firewall-cmd --permanent --remove-service=cockpit   # optional
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-all
+```
+
+**fail2ban:**
+
+```bash
+sudo dnf install -y fail2ban
+sudo systemctl enable --now fail2ban
+```
+
+Create `/etc/fail2ban/jail.d/ssl-manager.conf` with the same content as the Ubuntu example above, then:
+
+```bash
+sudo systemctl restart fail2ban
+```
+
+**Automatic security updates (dnf-automatic):**
+
+```bash
+sudo dnf install -y dnf-automatic
+sudo sed -i 's/^apply_updates = .*/apply_updates = yes/' /etc/dnf/automatic.conf
+sudo systemctl enable --now dnf-automatic.timer
+```
+
+### Service management
+
+Identical commands to Ubuntu — `systemctl status ssl-manager`, `journalctl -u ssl-manager`, etc.
+
+### Upgrading
+
+```bash
+sudo bash install-rhel.sh --upgrade
+```
+
+See [Upgrading from Previous Versions](#upgrading-from-previous-versions) for version-specific notes.
+
+### Uninstalling
+
+```bash
+sudo bash install-rhel.sh --uninstall
+```
+
+---
+
+## Configure Email (Optional)
+
+SSL Manager can send password reset emails via SMTP. This step is optional — the application functions fully without email; only the password reset flow requires it.
+
+### Supported authentication methods
+
+| Method | When to use |
+|---|---|
+| **Standard SMTP** | Any mail provider that supports SMTP with username/password — Gmail (app password), SendGrid, Amazon SES, Mailgun, your own server |
+| **Microsoft 365 OAuth** | Microsoft 365 / Exchange Online accounts where modern authentication is required |
+| **Google OAuth** | Google Workspace accounts using OAuth 2.0 |
+
+### Configure via the web UI
+
+1. Log in as a **superadmin** user.
+2. Navigate to **Settings → Email** (`/settings/smtp`).
+3. Fill in the fields for your provider:
+
+**Standard SMTP fields:**
+
+| Field | Example |
+|---|---|
+| SMTP Host | `smtp.sendgrid.net` |
+| Port | `587` (STARTTLS) or `465` (SSL) |
+| Username | Your SMTP login or API key name |
+| Password | Your SMTP password or API key |
+| From address | `noreply@yourdomain.com` |
+| From name | `SSL Manager` |
+| Use TLS / Use SSL | Match your provider's requirement |
+
+**Microsoft 365 OAuth:**
+
+1. Register an application in [Azure Active Directory](https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredApps).
+2. Add the redirect URI: `http://localhost:5001/settings/smtp/oauth/microsoft/callback`
+3. Grant the `Mail.Send` permission (delegated).
+4. In the SSL Manager SMTP settings, select **Microsoft 365 OAuth**, enter the **Client ID**, **Client Secret**, and **Tenant ID**, then click **Connect** to complete the OAuth flow.
+
+**Google OAuth:**
+
+1. Create an OAuth 2.0 Client ID in [Google Cloud Console](https://console.cloud.google.com/).
+2. Add the redirect URI: `http://localhost:5001/settings/smtp/oauth/google/callback`
+3. Enable the **Gmail API** in your project.
+4. In the SSL Manager SMTP settings, select **Google OAuth**, enter the **Client ID** and **Client Secret**, then click **Connect**.
+
+### Test email delivery
+
+After saving your settings, click **Send Test Email** on the SMTP settings page. A test message will be sent to your own account (the logged-in superadmin's email address). Check the audit log if the test fails — delivery errors are recorded there.
+
+### Network requirements
+
+Ensure outbound TCP is permitted on the port your provider uses:
+
+```bash
+# Ubuntu (UFW)
+sudo ufw allow out 587/tcp   # STARTTLS
+sudo ufw allow out 465/tcp   # SSL (if used instead)
+
+# RHEL (firewalld)
+sudo firewall-cmd --permanent --add-port=587/tcp
+sudo firewall-cmd --reload
+```
 
 ---
 
@@ -300,7 +491,7 @@ Option B — MSI installer: download and run the installer from [aka.ms/installa
 
 ### SSH key pair
 
-Every user who needs to connect to the server — including the administrator deploying via Terraform — requires an SSH key pair. Generate one on the machine you will connect from, then provide the public key to the server administrator (or paste it into `terraform.tfvars` for Terraform deployments).
+Every user who needs to connect to the server requires an SSH key pair. Generate one on the machine you will connect from, then provide the public key to the server administrator (or paste it into `terraform.tfvars` for Terraform deployments).
 
 #### macOS
 
@@ -378,8 +569,6 @@ Check whether a key already exists:
 ls -la ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub 2>/dev/null
 ```
 
-**If a key already exists** and you are comfortable reusing it, skip to the "View / copy" step below.
-
 **If no key exists**, or you want a dedicated key:
 
 ```bash
@@ -400,7 +589,6 @@ cat ~/.ssh/id_ed25519_ssl_manager.pub   # named key
 # Copy to clipboard (install xclip first if needed)
 xclip -selection clipboard < ~/.ssh/id_ed25519.pub          # X11
 wl-copy < ~/.ssh/id_ed25519.pub                             # Wayland
-xclip -selection clipboard < ~/.ssh/id_ed25519_ssl_manager.pub   # named key, X11
 ```
 
 **Connecting with a named key:**
@@ -412,7 +600,7 @@ ssh -i ~/.ssh/id_ed25519_ssl_manager user@<server-ip>
 ssh -i ~/.ssh/id_ed25519_ssl_manager -L 5001:127.0.0.1:5001 user@<server-ip>
 ```
 
-Or add to `~/.ssh/config` to avoid specifying `-i` on every connection:
+Or add to `~/.ssh/config`:
 
 ```
 Host ssl-manager
@@ -454,19 +642,16 @@ type $env:USERPROFILE\.ssh\id_ed25519_ssl_manager.pub   # named key
 
 # Copy the public key to the clipboard
 Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | Set-Clipboard
-Get-Content $env:USERPROFILE\.ssh\id_ed25519_ssl_manager.pub | Set-Clipboard  # named key
 ```
 
 **Connecting with a named key:**
 
 ```powershell
 ssh -i $env:USERPROFILE\.ssh\id_ed25519_ssl_manager user@<server-ip>
-
-# With tunnel
 ssh -i $env:USERPROFILE\.ssh\id_ed25519_ssl_manager -L 5001:127.0.0.1:5001 user@<server-ip>
 ```
 
-Or add to `C:\Users\<you>\.ssh\config` (create the file if it does not exist):
+Or add to `C:\Users\<you>\.ssh\config`:
 
 ```
 Host ssl-manager
@@ -486,15 +671,15 @@ If you have [Git for Windows](https://git-scm.com/download/win) installed, open 
 If you use PuTTY for SSH sessions:
 
 1. Open **PuTTYgen** (included with PuTTY)
-2. Check whether an existing `.ppk` file exists in your documents — if so, you can load and reuse it via **File → Load private key**
-3. To create a new key: select **EdDSA** and click **Generate**, then move the mouse over the blank area to generate entropy
+2. Check whether an existing `.ppk` file exists — if so, load and reuse it via **File → Load private key**
+3. To create a new key: select **EdDSA** and click **Generate**, then move the mouse to generate entropy
 4. Set a **Key passphrase**
-5. Click **Save private key** — save the `.ppk` file with a descriptive name (e.g. `ssl-manager.ppk`)
-6. Copy the text in the **Public key for pasting into OpenSSH authorized_keys** box — this is what goes on the server
+5. Click **Save private key** — save the `.ppk` file (e.g. `ssl-manager.ppk`)
+6. Copy the text in the **Public key for pasting into OpenSSH authorized_keys** box
 
-To specify the key in a PuTTY session: open the session, go to **Connection → SSH → Auth → Credentials**, and set the **Private key file** to your `.ppk` file.
+To specify the key in a PuTTY session: go to **Connection → SSH → Auth → Credentials** and set the **Private key file** to your `.ppk`.
 
-> The `.ppk` format is PuTTY-specific. When the server administrator asks for your public key, give them the text from the "Public key for pasting into OpenSSH" box, not the `.ppk` file itself.
+> The `.ppk` format is PuTTY-specific. When asked for your public key, provide the text from the "Public key for pasting into OpenSSH" box, not the `.ppk` file itself.
 
 ### Find your current public IP
 
@@ -610,7 +795,7 @@ ssh sslmgr@<public_ip_from_output>
 | Resource group, VNet, subnet | Isolated network |
 | Network Security Group | SSH (port 22) from `allowed_ssh_ips` only; all other inbound blocked |
 | VM | `Standard_B1ms` (1 vCPU / 2 GB), Ubuntu 24.04 LTS |
-| OS disk | 30 GB Premium SSD, encrypted at host (covers OS disk, temp disk, and caches) |
+| OS disk | 30 GB Premium SSD, encrypted at host |
 | Static public IP | Standard SKU, persists through reboots |
 
 ### Adding SSH IPs later
@@ -655,23 +840,23 @@ Watch backup output:
 docker compose -f docker-compose.yml -f docker-compose.test.yml logs -f backup-test
 ```
 
-Trigger an immediate backup:
+### App + design seed data
+
+Populates the database with representative seed data (certificates, chains, CAs, users) for UI development and screenshot generation:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.test.yml \
-  exec backup-test bash /app/backup.sh \
-    --db /app/instance/ssl_manager.db \
-    --dest /var/backups/ssl-manager \
-    --days 7
+docker compose -f docker-compose.yml -f docker-compose.design.yml up --build
 ```
 
-Full developer workflow documentation, including the complete Docker command reference, is in [WORKFLOW.md — Section 1](WORKFLOW.md#1-docker-development-environment).
+Seed credentials: `designer / design123` (superadmin), `alice / design123` (user). See `seed_design.py` for the full dataset.
+
+Full developer workflow documentation, including the complete Docker command reference, is in [WORKFLOW.md — Section 1](../developer/WORKFLOW.md#1-docker-development-environment).
 
 ---
 
 ## Managing SSH Users on the Server
 
-This section applies to all deployment methods (bare metal, AWS, Azure). Perform these steps as the initial admin user after connecting to the server for the first time.
+This section applies to all deployment methods. Perform these steps as the initial admin user after connecting to the server for the first time.
 
 ### Creating a user account
 
@@ -681,47 +866,28 @@ sudo adduser alice
 
 # Create a user with sudo access
 sudo adduser bob
-sudo usermod -aG sudo bob
+sudo usermod -aG sudo bob      # Ubuntu
+sudo usermod -aG wheel bob     # RHEL-family
 ```
 
-`adduser` is interactive — it prompts for a password and optional profile fields. The password is used only for `sudo` prompts on the server itself; SSH login will use the key exclusively.
+`adduser` / `useradd` is interactive — it prompts for a password. The password is used only for `sudo` prompts on the server itself; SSH login uses keys.
 
 > **Tip:** For users who only need SSH tunnel access to the SSL Manager web UI and will never run commands on the server, a standard account without sudo is sufficient.
 
 ### Adding a user's SSH public key
 
-Each user generates their key pair on their own machine (see [SSH key pair](#ssh-key-pair) above) and sends their **public key** (the `.pub` file contents) to the administrator. The administrator then places it on the server.
+Each user generates their key pair on their own machine and sends their **public key** to the administrator.
 
-**Method A — as the admin, placing a key for another user**
+**As the admin, placing a key for another user:**
 
 ```bash
-# Switch to the target user's home directory
 sudo mkdir -p /home/alice/.ssh
 sudo chmod 700 /home/alice/.ssh
-
-# Paste or write the user's public key into authorized_keys
-# Replace the echo line with the actual key the user sent you
 echo "ssh-ed25519 AAAAC3Nz...rest-of-key... alice-laptop" \
   | sudo tee -a /home/alice/.ssh/authorized_keys
-
-# Lock down permissions — SSH will refuse keys if these are wrong
 sudo chmod 600 /home/alice/.ssh/authorized_keys
 sudo chown -R alice:alice /home/alice/.ssh
 ```
-
-**Method B — the user adds their own key after first login**
-
-If you grant the user temporary password-based SSH access to set up their own key:
-
-```bash
-# Run this as the user (alice) after logging in with a password
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-echo "ssh-ed25519 AAAAC3Nz...rest-of-key... alice-laptop" >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
-
-Once the key is in place, test that key-based login works before disabling password authentication.
 
 ### Adding multiple keys for one user
 
@@ -735,38 +901,15 @@ EOF
 sudo chmod 600 /home/alice/.ssh/authorized_keys
 ```
 
-### Verifying permissions
-
-Incorrect permissions on `.ssh` or `authorized_keys` silently prevent key-based login. Verify with:
-
-```bash
-sudo ls -la /home/alice/.ssh/
-# Expected:
-#   drwx------  alice alice  .ssh/               (700)
-#   -rw-------  alice alice  authorized_keys     (600)
-```
-
-### Testing the connection
-
-Have the user test their key before closing any existing sessions:
-
-```bash
-# From the user's local machine
-ssh alice@<server-ip>
-
-# Or via tunnel for SSL Manager access
-ssh -L 5001:127.0.0.1:5001 alice@<server-ip>
-```
-
 ### Disabling password authentication (recommended)
 
-Once all users have working key-based login, disable password authentication to prevent brute-force attacks:
+Once all users have working key-based login, disable password authentication:
 
 ```bash
 sudo nano /etc/ssh/sshd_config
 ```
 
-Set or confirm the following lines:
+Set or confirm:
 
 ```
 PasswordAuthentication no
@@ -775,18 +918,16 @@ PermitRootLogin no
 AuthorizedKeysFile .ssh/authorized_keys
 ```
 
-Apply the change:
-
 ```bash
-sudo sshd -t          # test the config for syntax errors before reloading
+sudo sshd -t          # test config before applying
 sudo systemctl reload ssh
 ```
 
-> **Important:** Do not close your current session until you have confirmed that key-based login works in a new terminal window. A misconfigured `sshd_config` can lock you out of the server.
+> **Important:** Do not close your current session until you have confirmed key-based login works in a new terminal window.
 
 ### Revoking access
 
-To remove a user's access, delete or comment out their line in `authorized_keys`:
+To remove a user's access, delete their line in `authorized_keys`:
 
 ```bash
 sudo nano /home/alice/.ssh/authorized_keys
@@ -796,10 +937,67 @@ sudo nano /home/alice/.ssh/authorized_keys
 To remove the user entirely:
 
 ```bash
-sudo deluser --remove-home alice
+sudo deluser --remove-home alice      # Ubuntu
+sudo userdel --remove alice           # RHEL-family
 ```
 
-This deletes the home directory and `authorized_keys` file, immediately terminating all future SSH access for that user.
+---
+
+## Upgrading from Previous Versions
+
+The `--upgrade` flag handles all routine upgrades: it backs up the database, copies updated application files, reinstalls Python dependencies, and restarts the service. **Schema changes are applied automatically** on the next service start — no manual SQL steps are ever required.
+
+```bash
+sudo bash install.sh --upgrade          # Ubuntu
+sudo bash install-rhel.sh --upgrade     # RHEL-family
+```
+
+### Version history and migration notes
+
+#### Current release — Smart bundle import
+
+Added in the most recent update. No manual steps required on upgrade.
+
+**New features:**
+- **Smart P12/PFX import** — uploading a `.p12` or `.pfx` file now shows a live File Analysis preview (key type, certificate CN, expiry, detected intermediates, chain action) before import is confirmed.
+- **Keypair import** — a new Import Private Key + Certificate flow accepts a separate PEM key and certificate (or bundle, including P7B). Live preview confirms key/certificate match before import.
+- **Smart bundle upload** — uploading a signed certificate via the Certificate Detail page now performs role-based detection: the leaf certificate is identified by its CA flag, intermediates are split out and deduplicated against the assigned chain. P7B bundles are supported.
+- **Security update** — `cryptography` library updated to 46.0.7 (addresses CVE-2025-61727).
+
+#### v1.2 — Password reset and SMTP
+
+**New features:**
+- **Password reset by email** — users can request a password reset link from the login page. Requires SMTP to be configured (see [Configure Email](#configure-email-optional)).
+- **Microsoft 365 and Google OAuth** — SMTP authentication via OAuth 2.0, removing the need to store an application password.
+- **Automatic session invalidation** — changing a user's password immediately invalidates all existing sessions for that account.
+- **15-minute idle timeout** — unauthenticated sessions are invalidated after 15 minutes of inactivity.
+
+**Schema migrations (automatic):**
+- `user.session_version` — integer column added to support session invalidation on password change.
+- `smtp_config.*` — new table (and additional OAuth columns) created to store SMTP configuration.
+
+**Upgrade action required:** None — migrations run automatically on first start after upgrade.
+
+#### v1.1 — Certificate Authorities (internal CA)
+
+**New features:**
+- **Internal CA module** — create self-signed root CAs entirely within SSL Manager and use them to sign pending certificates without an external CA portal.
+- **Certificate Profiles** — reusable templates for CSR subject fields (organisation, country, key size, etc.).
+- **Named Certificate Chains** — intermediate certificates are now grouped into named chains that can be shared across multiple certificates.
+- **Import CSR** — import an externally generated CSR (from a network appliance, load balancer, etc.) as a pending certificate record.
+
+**Schema migrations (automatic):**
+- `cert_chain` — new table for named certificate chains.
+- `intermediate_cert.chain_id` — foreign key added to link intermediates to a chain.
+- `certificate.chain_id` — foreign key added to link certificates to a chain.
+- `certificate.profile_id` — foreign key added to link certificates to a profile.
+- `settings.name` / `settings.is_default` — columns added to support named profiles.
+
+**Upgrade action required:** None — all migrations and data backfills run automatically on first start. Existing intermediates are migrated into a "Default Chain" automatically.
+
+#### v1.0 — Initial release
+
+Base feature set: certificate lifecycle management (generate key + CSR, upload signed cert), intermediate certificate management, user accounts, audit log, daily backup timer.
 
 ---
 
