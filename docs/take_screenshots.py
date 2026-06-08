@@ -448,6 +448,15 @@ async def main(base_url: str) -> None:
             await nav(page, base_url, "/audit?q=login")
             await capture(page, "12-audit/audit_log_search.png")
 
+            # ── 13  Expiry notifications ──────────────────────────────────────
+            # Fill the form with representative values before capturing so the
+            # screenshot shows a configured (non-empty) state.
+            await nav(page, base_url, "/settings/notifications")
+            await page.check("#enabled")
+            await page.fill("#days_threshold", "30")
+            await page.fill("#recipient_emails", "admin@example.com")
+            await capture(page, "13-notifications/notifications_settings.png")
+
             await browser.close()
 
     print(f"\nDone — {len(list(SHOTS_DIR.rglob('*.png')))} screenshots in {SHOTS_DIR}")

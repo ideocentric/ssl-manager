@@ -34,6 +34,8 @@ ENV_FILE="${CONF_DIR}/env"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 BACKUP_SERVICE_FILE="/etc/systemd/system/${APP_NAME}-backup.service"
 BACKUP_TIMER_FILE="/etc/systemd/system/${APP_NAME}-backup.timer"
+NOTIFY_SERVICE_FILE="/etc/systemd/system/${APP_NAME}-notify.service"
+NOTIFY_TIMER_FILE="/etc/systemd/system/${APP_NAME}-notify.timer"
 SERVICE_USER="${APP_NAME}"
 SOCKET_PATH="/run/ssl-manager/ssl-manager.sock"
 NGINX_CONF="/etc/nginx/sites-available/${APP_NAME}"
@@ -83,11 +85,15 @@ do_uninstall() {
     echo
     confirm "Proceed with uninstall?" n || { info "Aborted."; exit 0; }
 
+    systemctl is-active  --quiet "${APP_NAME}-notify.timer" 2>/dev/null && { info "Stopping notify timer…";   systemctl stop    "${APP_NAME}-notify.timer"; }
+    systemctl is-enabled --quiet "${APP_NAME}-notify.timer" 2>/dev/null && { info "Disabling notify timer…";  systemctl disable "${APP_NAME}-notify.timer"; }
     systemctl is-active  --quiet "${APP_NAME}-backup.timer" 2>/dev/null && { info "Stopping backup timer…";   systemctl stop    "${APP_NAME}-backup.timer"; }
     systemctl is-enabled --quiet "${APP_NAME}-backup.timer" 2>/dev/null && { info "Disabling backup timer…";  systemctl disable "${APP_NAME}-backup.timer"; }
     systemctl is-active  --quiet "${APP_NAME}" 2>/dev/null && { info "Stopping service…";   systemctl stop    "${APP_NAME}"; }
     systemctl is-enabled --quiet "${APP_NAME}" 2>/dev/null && { info "Disabling service…";  systemctl disable "${APP_NAME}"; }
 
+    [[ -f "${NOTIFY_TIMER_FILE}"   ]] && rm -f "${NOTIFY_TIMER_FILE}"
+    [[ -f "${NOTIFY_SERVICE_FILE}" ]] && rm -f "${NOTIFY_SERVICE_FILE}"
     [[ -f "${BACKUP_TIMER_FILE}"   ]] && rm -f "${BACKUP_TIMER_FILE}"
     [[ -f "${BACKUP_SERVICE_FILE}" ]] && rm -f "${BACKUP_SERVICE_FILE}"
     [[ -f "${SERVICE_FILE}" ]] && { info "Removing systemd units…"; rm -f "${SERVICE_FILE}"; systemctl daemon-reload; }
@@ -137,6 +143,8 @@ do_upgrade() {
     systemctl daemon-reload
     systemctl enable --quiet "${APP_NAME}-backup.timer"
     systemctl restart "${APP_NAME}-backup.timer"
+    systemctl enable --quiet "${APP_NAME}-notify.timer"
+    systemctl restart "${APP_NAME}-notify.timer"
     info "Restarting service…"
     systemctl restart "${APP_NAME}"
     info "Upgrade complete."
@@ -204,12 +212,15 @@ copy_app_files() {
     cp "${SCRIPT_DIR}/wsgi.py"          "${APP_DIR}/"
     cp "${SCRIPT_DIR}/requirements.txt" "${APP_DIR}/"
     cp "${SCRIPT_DIR}/backup.sh"        "${APP_DIR}/"
+    cp "${SCRIPT_DIR}/notify_expiry.py" "${APP_DIR}/"
     cp -r "${SCRIPT_DIR}/app"           "${APP_DIR}/"
 
-    # Install systemd backup units (owned by root, not inside APP_DIR)
+    # Install systemd units (owned by root, not inside APP_DIR)
     cp "${SCRIPT_DIR}/deploy/systemd/ssl-manager-backup.service" "${BACKUP_SERVICE_FILE}"
     cp "${SCRIPT_DIR}/deploy/systemd/ssl-manager-backup.timer"   "${BACKUP_TIMER_FILE}"
-    chmod 644 "${BACKUP_SERVICE_FILE}" "${BACKUP_TIMER_FILE}"
+    cp "${SCRIPT_DIR}/deploy/systemd/ssl-manager-notify.service" "${NOTIFY_SERVICE_FILE}"
+    cp "${SCRIPT_DIR}/deploy/systemd/ssl-manager-notify.timer"   "${NOTIFY_TIMER_FILE}"
+    chmod 644 "${BACKUP_SERVICE_FILE}" "${BACKUP_TIMER_FILE}" "${NOTIFY_SERVICE_FILE}" "${NOTIFY_TIMER_FILE}"
     # root owns files; ssl-manager group can read/execute — not world-readable
     chown -R root:"${SERVICE_USER}" "${APP_DIR}"
     chmod -R 750 "${APP_DIR}"
@@ -473,6 +484,10 @@ systemctl restart "${APP_NAME}"
 info "Enabling daily backup timer…"
 systemctl enable --quiet "${APP_NAME}-backup.timer"
 systemctl start  "${APP_NAME}-backup.timer"
+
+info "Enabling daily expiry notification timer…"
+systemctl enable --quiet "${APP_NAME}-notify.timer"
+systemctl start  "${APP_NAME}-notify.timer"
 
 # Brief pause so gunicorn can create the socket before nginx tries to connect
 sleep 2

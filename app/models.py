@@ -2,7 +2,7 @@
 # FILE:           app/models.py
 # DESCRIPTION:    SQLAlchemy ORM models: User, Settings, CertChain,
 #                 IntermediateCert, Certificate, AuditLog, SmtpConfig,
-#                 PasswordResetToken, PasswordResetAttempt.
+#                 PasswordResetToken, PasswordResetAttempt, NotificationConfig.
 #
 # LICENSE:        GNU Affero General Public License v3.0 (AGPL-3.0)
 #                 Copyright (C) 2026  Matt Comeione / ideocentric
@@ -400,3 +400,26 @@ class PasswordResetAttempt(db.Model):
     id         = db.Column(db.Integer, primary_key=True)
     ip_address = db.Column(db.String(45), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class NotificationConfig(db.Model):
+    """Singleton row controlling expiry notification emails.
+
+    When enabled, notify_expiry.py (run daily via systemd timer) sends a
+    digest email listing all certificates/CAs/intermediates expiring within
+    days_threshold days to every address in recipient_emails.
+    """
+
+    __tablename__ = "notification_config"
+
+    id                   = db.Column(db.Integer, primary_key=True)
+    enabled              = db.Column(db.Boolean, nullable=False, default=False)
+    days_threshold       = db.Column(db.Integer, nullable=False, default=30)
+    recipient_emails     = db.Column(db.Text, nullable=False, default="")  # comma-separated
+    notify_certificates  = db.Column(db.Boolean, nullable=False, default=True)
+    notify_cas           = db.Column(db.Boolean, nullable=False, default=True)
+    notify_intermediates = db.Column(db.Boolean, nullable=False, default=True)
+
+    def recipients(self) -> list[str]:
+        """Return the non-empty, stripped email addresses as a list."""
+        return [e.strip() for e in self.recipient_emails.split(",") if e.strip()]
