@@ -1,15 +1,15 @@
 ---
 name: project-state
-description: Current project state as of 2026-06-07 — admin documentation updated on feature/user-guide-smart-import
+description: Current project state as of 2026-06-07 — feature/user-guide-smart-import merged to master
 metadata:
   type: project
 ---
 
 ## Current state (as of 2026-06-07)
 
-**Active branch: `feature/user-guide-smart-import`** — admin documentation update in progress.
+**Active branch: `master`** — clean and up to date. `feature/user-guide-smart-import` committed, PR'd, and merged.
 
-### Admin docs completed (this branch)
+### What shipped in feature/user-guide-smart-import
 
 - `docs/admin/REQUIREMENTS.md` — fully rewritten: Ubuntu + RHEL-family OS sections, arm64, corrected packages, cryptography 46.0.7, outbound SMTP network requirement, split filesystem layout table
 - `docs/admin/INSTALL.md` — fully rewritten: Ubuntu bare metal, RHEL/Rocky/AlmaLinux (new), email config (SMTP + M365/Google OAuth), cloud prerequisites (Terraform/AWS CLI/Azure CLI, SSH key gen for all platforms), Upgrading from Previous Versions section (schema migrations are automatic)

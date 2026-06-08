@@ -1,0 +1,16 @@
+[Unit]
+Description=SSL Manager — daily certificate expiry notification timer
+Documentation=file:///opt/ssl-manager/notify_expiry.py
+
+[Timer]
+# Run daily at 08:00 local time (after the 02:00 backup)
+OnCalendar=*-*-* 08:00:00
+
+# Spread the start time by up to 5 minutes
+RandomizedDelaySec=300
+
+# If the system was off at the scheduled time, run at next boot
+Persistent=true
+
+[Install]
+WantedBy=timers.target

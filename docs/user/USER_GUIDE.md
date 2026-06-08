@@ -47,6 +47,7 @@ This guide covers everything an end user needs: connecting to the application, s
 10. [Renewing a Certificate](#10-renewing-a-certificate)
 11. [User Management](#11-user-management)
 12. [Audit Log](#12-audit-log)
+13. [Expiry Notifications](#13-expiry-notifications)
 
 ---
 
@@ -734,6 +735,40 @@ Use the **10 / 20 / 50 / All** button group to control how many entries are show
 | `success` | The action completed without errors |
 | `failure` | The action failed (detail column gives the reason) |
 | Other | Informational status specific to the action type |
+
+---
+
+## 13. Expiry Notifications
+
+Expiry notifications are available to **superadmin** accounts only. Navigate to **Notifications** in the navbar.
+
+When enabled, SSL Manager sends a daily digest email listing all certificates, CAs, and intermediates expiring within a configurable window. The email is only sent on days when at least one item is found — no email is sent when nothing is expiring within the threshold.
+
+> **Prerequisite:** Email must be configured and enabled under **Settings → Email** before notifications can be delivered. See your administrator if SMTP is not yet set up.
+
+![Notifications settings page](screenshots/13-notifications/notifications_settings.png)
+
+### Configuration
+
+| Field | Description |
+|---|---|
+| **Enable expiry notifications** | Master switch. When off, no emails are sent regardless of other settings. |
+| **Notify when expiring within** | How many days before expiry to start including an item in the digest. Default is 30 days. |
+| **Recipient email address(es)** | One or more email addresses to send the digest to. Separate multiple addresses with commas. |
+| **Include in digest** | Choose which certificate types to include: leaf certificates, internal CAs, and/or intermediate certificates. |
+
+### The digest email
+
+The digest lists all matching items sorted by days remaining, with colour-coded badges:
+
+| Badge colour | Meaning |
+|---|---|
+| Red `EXPIRED` | Certificate has already passed its expiry date |
+| Red `Nd` | Expires in 7 days or fewer |
+| Orange `Nd` | Expires in 8–14 days |
+| Yellow `Nd` | Expires in 15 days or more (within threshold) |
+
+Each notification send (success or failure) is recorded in the **Audit Log** under the action `expiry_notification_sent`.
 
 ---
 

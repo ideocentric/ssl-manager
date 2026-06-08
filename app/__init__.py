@@ -117,6 +117,7 @@ def create_app(test_config=None):
     from .routes.admin import bp as admin_bp
     from .routes.smtp import bp as smtp_bp
     from .routes.reset import bp as reset_bp
+    from .routes.notifications import bp as notifications_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
@@ -127,6 +128,7 @@ def create_app(test_config=None):
     app.register_blueprint(admin_bp)
     app.register_blueprint(smtp_bp)
     app.register_blueprint(reset_bp)
+    app.register_blueprint(notifications_bp)
 
     # ---------------------------------------------------------------------------
     # Jinja globals
@@ -195,7 +197,8 @@ def create_app(test_config=None):
         # create_all() is called.
         from .models import (  # noqa: F401
             Certificate, CertChain, CertificateAuthority, IntermediateCert,
-            PasswordResetAttempt, PasswordResetToken, Settings, SmtpConfig,
+            NotificationConfig, PasswordResetAttempt, PasswordResetToken,
+            Settings, SmtpConfig,
         )
 
         db.create_all()

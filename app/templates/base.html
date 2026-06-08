@@ -120,6 +120,10 @@
            class="nav-link {% if request.endpoint and request.endpoint.startswith('smtp') %}active{% endif %}">
           <i class="bi bi-gear"></i> Settings
         </a>
+        <a href="{{ url_for('notifications.notification_config') }}"
+           class="nav-link {% if request.endpoint and request.endpoint.startswith('notifications') %}active{% endif %}">
+          <i class="bi bi-bell"></i> Notifications
+        </a>
       </nav>
       {% endif %}
 

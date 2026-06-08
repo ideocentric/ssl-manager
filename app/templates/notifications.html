@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Notification Settings — SSL Manager{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-bell me-2"></i>Notifications</h2>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="bi bi-envelope-exclamation me-2"></i>Expiry Notifications</h6>
+    <span class="badge {% if cfg and cfg.enabled %}bg-success{% else %}bg-secondary{% endif %}">
+      {{ 'Enabled' if cfg and cfg.enabled else 'Disabled' }}
+    </span>
+  </div>
+  <div class="card-body">
+
+    <form method="post" action="{{ url_for('notifications.notification_config') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      {# Enabled toggle #}
+      <div class="mb-4 d-flex align-items-center gap-3">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch"
+                 id="enabled" name="enabled" value="1"
+                 {% if cfg and cfg.enabled %}checked{% endif %}>
+          <label class="form-check-label fw-semibold" for="enabled">Enable expiry notifications</label>
+        </div>
+        <span class="text-muted small">Requires email (SMTP) to be configured and enabled.</span>
+      </div>
+
+      {# Threshold #}
+      <div class="mb-3">
+        <label class="form-label fw-semibold" for="days_threshold">Notify when expiring within</label>
+        <div class="input-group" style="max-width: 200px;">
+          <input type="number" class="form-control" id="days_threshold" name="days_threshold"
+                 min="1" max="365"
+                 value="{{ cfg.days_threshold if cfg else 30 }}">
+          <span class="input-group-text">days</span>
+        </div>
+        <div class="form-text">A daily digest email is sent listing all items expiring within this window.</div>
+      </div>
+
+      {# Recipient emails #}
+      <div class="mb-3">
+        <label class="form-label fw-semibold" for="recipient_emails">Recipient email address(es)</label>
+        <input type="text" class="form-control" id="recipient_emails" name="recipient_emails"
+               value="{{ cfg.recipient_emails if cfg else '' }}"
+               placeholder="admin@example.com, security@example.com"
+               autocomplete="off">
+        <div class="form-text">Separate multiple addresses with commas.</div>
+      </div>
+
+      {# Certificate types #}
+      <div class="mb-4">
+        <label class="form-label fw-semibold d-block">Include in digest</label>
+        <div class="d-flex gap-4 flex-wrap">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="notify_certificates"
+                   name="notify_certificates" value="1"
+                   {% if not cfg or cfg.notify_certificates %}checked{% endif %}>
+            <label class="form-check-label" for="notify_certificates">
+              <i class="bi bi-file-earmark-lock2 me-1"></i>Certificates
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="notify_cas"
+                   name="notify_cas" value="1"
+                   {% if not cfg or cfg.notify_cas %}checked{% endif %}>
+            <label class="form-check-label" for="notify_cas">
+              <i class="bi bi-award me-1"></i>Certificate Authorities
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="notify_intermediates"
+                   name="notify_intermediates" value="1"
+                   {% if not cfg or cfg.notify_intermediates %}checked{% endif %}>
+            <label class="form-check-label" for="notify_intermediates">
+              <i class="bi bi-diagram-3 me-1"></i>Intermediate Certificates
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-save me-1"></i>Save Settings
+        </button>
+      </div>
+    </form>
+
+  </div>
+</div>
+
+{# Info card explaining the digest behaviour #}
+<div class="card shadow-sm mb-4 border-0 bg-light">
+  <div class="card-body">
+    <h6 class="card-title"><i class="bi bi-info-circle me-2"></i>How it works</h6>
+    <ul class="mb-0 small text-muted">
+      <li>A check runs once daily (08:00 server time) via a systemd timer.</li>
+      <li>If any certificates are expiring within the configured window, a single digest email is sent listing all of them sorted by days remaining.</li>
+      <li>No email is sent on days when nothing is expiring within the window.</li>
+      <li>Email delivery requires SMTP to be configured under <a href="{{ url_for('smtp.smtp_config') }}">Settings → Email</a>.</li>
+    </ul>
+  </div>
+</div>
+
+{% endblock %}
