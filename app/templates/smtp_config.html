@@ -64,7 +64,7 @@
       <div id="oauthSection" style="display:none">
 
         {# Connection status #}
-        <div class="mb-3 p-3 rounded border {% if cfg and cfg.oauth_connected %}border-success bg-success bg-opacity-10{% else %}border-secondary bg-light{% endif %}">
+        <div class="mb-3 p-3 rounded border {% if cfg and cfg.oauth_connected %}border-success bg-success bg-opacity-10{% else %}border-secondary bg-secondary bg-opacity-10{% endif %}">
           <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
             <div>
               {% if cfg and cfg.oauth_connected %}
