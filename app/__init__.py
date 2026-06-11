@@ -8,8 +8,9 @@
 # USAGE:          python wsgi.py                       # local dev server
 #                 gunicorn --bind unix:/run/ssl-manager/ssl-manager.sock wsgi:app
 #
-# DEPENDENCIES:   Flask, Flask-SQLAlchemy, Flask-Login, cryptography, pyjks,
-#                 gunicorn, openssl (system binary, required for P7B export)
+# DEPENDENCIES:   Flask, Flask-SQLAlchemy, Flask-Login, cryptography,
+#                 gunicorn, openssl (system binary, required for P7B export).
+#                 JKS export is built-in (app/jks_writer.py) — no pyjks/JRE.
 # REQUIREMENTS:   Python 3.10+
 #
 # AUTHOR:         Matt Comeione <matt@ideocentric.com>
