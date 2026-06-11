@@ -62,7 +62,7 @@ from app.crypto import (
     sign_csr_with_ca,
 )
 from app.extensions import db
-from app.models import AuditLog, Certificate, CertChain, CertificateAuthority, IntermediateCert, Settings, User
+from app.models import AuditLog, Certificate, CertChain, CertificateAuthority, IntermediateCert, Settings, SmtpConfig, User
 from app.validators import normalize_alias
 
 TEST_ADMIN_USERNAME = "admin"
@@ -1898,3 +1898,46 @@ class TestDownloadCertPemRoute:
             follow_redirects=True,
         )
         assert b"not yet signed" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Custom SMTP configuration route
+# ---------------------------------------------------------------------------
+
+class TestSmtpConfigRoute:
+    def test_unauthenticated_starttls_relay_on_port_25(self, flask_app, client):
+        """A custom relay with no auth + STARTTLS on port 25 must save cleanly:
+        unauthenticated but encrypted transport is a valid configuration."""
+        resp = client.post("/settings/smtp", data={
+            "provider": "custom",
+            "auth_type": "smtp",
+            "host": "relay.internal.example",
+            "port": "25",
+            "auth_method": "none",
+            "use_tls": "1",            # STARTTLS
+            "from_address": "noreply@example.com",
+            "enabled": "1",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        with flask_app.app_context():
+            cfg = SmtpConfig.query.first()
+            assert cfg is not None
+            assert cfg.port == 25
+            assert cfg.auth_method == "none"
+            assert cfg.use_tls is True
+            assert cfg.use_ssl is False
+            assert cfg.enabled is True
+
+    def test_starttls_and_implicit_ssl_are_mutually_exclusive(self, client):
+        resp = client.post("/settings/smtp", data={
+            "provider": "custom",
+            "auth_type": "smtp",
+            "host": "relay.internal.example",
+            "port": "25",
+            "auth_method": "none",
+            "use_tls": "1",
+            "use_ssl": "1",
+            "enabled": "1",
+        }, follow_redirects=True)
+        assert b"cannot both be enabled" in resp.data

@@ -17,6 +17,7 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `--upgrade` now performs a full refresh — it regenerates the systemd unit and nginx config from the current code in addition to application files and dependencies — while preserving the `SECRET_KEY`, database, and existing port/worker settings.
+- Clarified the Standard SMTP encryption options: relabeled "STARTTLS (port 587)" to indicate STARTTLS is not tied to a fixed port and added guidance for an unauthenticated, STARTTLS-encrypted relay (Authentication Method *None*, e.g. port 25). The capability already existed; only the form labels/help text changed.
 
 ### Fixed
 
