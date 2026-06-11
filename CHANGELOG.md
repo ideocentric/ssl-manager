@@ -13,6 +13,7 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Expiry notification emails — an optional daily digest of certificates, CAs, and intermediates nearing expiry, configurable under Settings → Notifications and delivered by a new systemd timer (`ssl-manager-notify.timer`).
 - The installer auto-detects an existing installation and runs as an upgrade when invoked with no flag; a new `--reinstall` flag forces the interactive installer.
+- `remediate_secret_key.py` — operator tool to detect SMTP/OAuth secrets orphaned by a `SECRET_KEY` change; reports by default, clears and disables SMTP with `--apply`, or recovers them with `--old-secret-key` if the previous key is available.
 
 ### Changed
 
