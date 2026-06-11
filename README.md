@@ -415,7 +415,7 @@ All queries use the SQLAlchemy ORM with parameterised bindings. The one raw SQL 
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.9+ (the runtime supports 3.9, as shipped on RHEL 9)
 - `openssl` in your PATH (for P7B downloads)
 
 ### Setup
@@ -428,6 +428,11 @@ python wsgi.py
 ```
 
 The app starts at **http://localhost:5001**
+
+> Regenerating the screenshots or PDF guides additionally requires the
+> documentation tooling, which is kept separate (weasyprint needs Python 3.10+):
+> `pip install -r requirements-docs.txt`. It is intentionally **not** in
+> `requirements.txt`, so it is never installed on the server.
 
 ---
 

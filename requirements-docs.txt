@@ -1,0 +1,11 @@
+# Documentation / build tooling — NOT required to run the application and NOT
+# installed on the server. Use this only in a development environment to
+# regenerate screenshots and PDF guides:
+#
+#     pip install -r requirements-docs.txt
+#
+# Note: weasyprint 69.x requires Python 3.10+, so the dev environment must use a
+# newer Python than the 3.9 runtime supported on RHEL 9. See docs/generate_pdf.py
+# and docs/take_screenshots.py.
+weasyprint==69.0
+playwright

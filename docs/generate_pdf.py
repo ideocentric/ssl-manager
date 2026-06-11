@@ -23,7 +23,8 @@ Page headers and footers are defined entirely in the CSS @page rules.
 
 ─── Prerequisites ───────────────────────────────────────────────────────────
   pandoc     on PATH     (brew install pandoc)
-  weasyprint in .venv    (pip install weasyprint  — already in requirements.txt)
+  weasyprint in .venv    (pip install -r requirements-docs.txt  — dev tooling,
+                          NOT in the server's requirements.txt; needs Python 3.10+)
 """
 
 import argparse
