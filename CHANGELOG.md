@@ -22,6 +22,8 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Fixed a startup race where concurrent gunicorn workers could fail to boot with `table ... already exists` (service `status=3`); database schema initialization is now serialized with an exclusive lock.
 - The installer no longer regenerates `SECRET_KEY` when run against an existing installation, which previously made stored SMTP/OAuth secrets undecryptable.
+- The server no longer installs documentation tooling. `weasyprint`/`playwright` moved out of `requirements.txt` into `requirements-docs.txt`, so installs/upgrades no longer fail on RHEL 9 (Python 3.9) where `weasyprint==69.0` requires Python 3.10+. Runtime dependencies are unchanged and remain 3.9-compatible.
+- The installers now install the `sqlite3`/`sqlite` CLI, which `backup.sh` requires for the pre-upgrade database backup and integrity checks.
 
 ---
 

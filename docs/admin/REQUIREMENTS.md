@@ -137,13 +137,16 @@ The packages below are installed automatically by `install.sh`:
 | `python3-venv` | Creates the isolated Python virtual environment at `/opt/ssl-manager/venv` |
 | `python3-dev` | C header files required to compile the `cryptography` package's native extensions |
 | `gcc` | C compiler required to build the `cryptography` package during `pip install` |
+| `sqlite3` | CLI tool used by `backup.sh` for WAL checkpointing and database integrity checks |
 
 > **`python3` and `openssl`** are present in a default Ubuntu 24.04 LTS server install; the installer includes them in the `apt-get install` call as an explicit dependency declaration.
 >
-> **`sqlite3`** (the CLI tool) is required by `backup.sh` for WAL checkpointing and database integrity checks, but is **not installed automatically** by `install.sh`. On Ubuntu 24.04 minimal server it may not be present. If backups fail with `sqlite3 not found`, install it manually:
+> **`sqlite3`** is installed automatically as of the current release. On an **existing** install upgraded from an earlier version it may be missing — if backups fail with `sqlite3 not found`, install it manually:
 > ```bash
-> sudo apt-get install -y sqlite3
+> sudo apt-get install -y sqlite3   # RHEL: sudo dnf install -y sqlite
 > ```
+>
+> **Documentation tooling** (`weasyprint`, `playwright`) is **not** installed on the server. It lives in `requirements-docs.txt` for development use only — `weasyprint` requires Python 3.10+, while the server runtime supports Python 3.9 (RHEL 9).
 
 #### RHEL-family (`install-rhel.sh`)
 
