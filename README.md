@@ -112,7 +112,7 @@ nginx listens **only on the loopback interface** (`127.0.0.1`). No port is reach
 - Creates all directories with enforced ownership and permissions (see table below)
 - Copies app files to `/opt/ssl-manager`
 - Creates a Python venv and installs all dependencies (including `gunicorn`)
-- Generates a cryptographically random `SECRET_KEY` and writes it to `/etc/ssl-manager/env` (readable only by root and the service user)
+- Generates a cryptographically random `SECRET_KEY` on first install and writes it to `/etc/ssl-manager/env` (readable only by root and the service user); on any later run the existing key is preserved — it must never change, because it encrypts stored SMTP/OAuth secrets
 - Installs a hardened `systemd` service unit (auto-restarts on failure; see [Systemd hardening](#systemd-hardening))
 - Installs and enables a `systemd` timer (`ssl-manager-backup.timer`) that runs `backup.sh` daily at 02:00, retaining 7 days of compressed, integrity-checked backups in `/var/backups/ssl-manager/`
 - Configures nginx as a reverse proxy with rate limiting and direct static file serving
@@ -132,6 +132,8 @@ The installer prompts for:
 | nginx listen port | `5001` | nginx binds to `127.0.0.1:<port>` — loopback only |
 | Gunicorn workers | `2` | Increase for higher concurrent load |
 | Secret key | auto-generated | 256-bit random hex; used to sign Flask sessions |
+
+> **Re-running on an existing install:** `sudo bash install.sh` with no flag detects an existing installation and automatically switches to upgrade mode — it does **not** re-prompt or regenerate the secret key. To force the interactive installer anyway, use `--reinstall`.
 
 ### Remote access via SSH port forwarding
 
@@ -354,12 +356,14 @@ sudo sysctl --system
 
 ### Upgrade
 
-Pull new code and re-run with `--upgrade`. Application files and Python dependencies are updated; the database and config are left untouched.
+Pull new code and re-run with `--upgrade` — or simply re-run `install.sh` with no flag, which auto-detects the existing installation and upgrades. The upgrade **preserves** your `SECRET_KEY`, database, and chosen port/worker count, and **regenerates** the application files, Python dependencies, systemd unit, and nginx config from the new code.
 
 ```bash
 git pull
 sudo bash install.sh --upgrade
 ```
+
+To force a clean interactive reinstall on a host that already has SSL Manager (re-prompting for port/workers), use `--reinstall`. The existing `SECRET_KEY` is still preserved so encrypted secrets stay readable.
 
 ### Uninstall
 

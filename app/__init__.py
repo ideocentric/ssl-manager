@@ -47,14 +47,30 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
+import fcntl
 import logging
 import logging.handlers
 import os
+import tempfile
 
 from flask import Flask, render_template, request
 
 from .extensions import db, login_manager
 from .security import _audit, _get_csrf_token, _static_url, security_checks, set_security_headers
+
+
+def _schema_lock_path(database_uri):
+    """Return a filesystem path for the schema-init advisory lock.
+
+    The lock lives next to the SQLite database — a directory the service is
+    always permitted to write to, even under systemd's ProtectSystem=strict —
+    so concurrent gunicorn workers serialize create_all()/migrations instead of
+    racing and crashing with "table ... already exists" (gunicorn exit code 3).
+    """
+    prefix = "sqlite:///"
+    if database_uri.startswith(prefix) and ":memory:" not in database_uri:
+        return database_uri[len(prefix):].split("?", 1)[0] + ".initlock"
+    return os.path.join(tempfile.gettempdir(), "ssl-manager-schema.initlock")
 
 
 def create_app(test_config=None):
@@ -201,53 +217,63 @@ def create_app(test_config=None):
             Settings, SmtpConfig,
         )
 
-        db.create_all()
-        # Ensure new columns exist on databases created before this schema version
-        _add_column_if_missing(db.engine, "intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)")
-        _add_column_if_missing(db.engine, "certificate", "chain_id INTEGER REFERENCES cert_chain(id)")
-        _add_column_if_missing(db.engine, "certificate", "profile_id INTEGER REFERENCES settings(id)")
-        _add_column_if_missing(db.engine, "settings", "name TEXT NOT NULL DEFAULT 'Default'")
-        _add_column_if_missing(db.engine, "settings", "is_default INTEGER NOT NULL DEFAULT 0")
-        _add_column_if_missing(db.engine, "user", "session_version INTEGER NOT NULL DEFAULT 0")
-        _add_column_if_missing(db.engine, "smtp_config", "auth_type TEXT NOT NULL DEFAULT 'smtp'")
-        _add_column_if_missing(db.engine, "smtp_config", "oauth_client_id TEXT DEFAULT ''")
-        _add_column_if_missing(db.engine, "smtp_config", "oauth_client_secret_enc TEXT DEFAULT ''")
-        _add_column_if_missing(db.engine, "smtp_config", "oauth_tenant_id TEXT DEFAULT ''")
-        _add_column_if_missing(db.engine, "smtp_config", "oauth_refresh_token_enc TEXT DEFAULT ''")
-        _add_column_if_missing(db.engine, "smtp_config", "oauth_access_token_enc TEXT DEFAULT ''")
-        _add_column_if_missing(db.engine, "smtp_config", "oauth_token_expiry DATETIME")
-        # Seed initial profile or migrate legacy singleton
-        if Settings.query.first() is None:
-            db.session.add(Settings(name="Default", is_default=True, key_size=2048))
-            db.session.commit()
-        else:
-            # Ensure exactly one profile is marked as the default
-            if not Settings.query.filter_by(is_default=True).first():
-                first = Settings.query.order_by(Settings.id.asc()).first()
-                first.is_default = True
+        # Hold an exclusive advisory lock for the whole schema bootstrap. With
+        # multiple gunicorn workers booting at once, an unguarded create_all()
+        # races (two workers both issue CREATE TABLE → "table ... already
+        # exists" → worker exits 3 → "Worker failed to boot"). The lock
+        # serializes create_all(), the ALTER migrations, and the data seeding
+        # so exactly one worker performs them while the others wait.
+        with open(_schema_lock_path(app.config["SQLALCHEMY_DATABASE_URI"]), "w") as _lock:
+            fcntl.flock(_lock, fcntl.LOCK_EX)
+
+            db.create_all()
+            # Ensure new columns exist on databases created before this schema version
+            _add_column_if_missing(db.engine, "intermediate_cert", "chain_id INTEGER REFERENCES cert_chain(id)")
+            _add_column_if_missing(db.engine, "certificate", "chain_id INTEGER REFERENCES cert_chain(id)")
+            _add_column_if_missing(db.engine, "certificate", "profile_id INTEGER REFERENCES settings(id)")
+            _add_column_if_missing(db.engine, "settings", "name TEXT NOT NULL DEFAULT 'Default'")
+            _add_column_if_missing(db.engine, "settings", "is_default INTEGER NOT NULL DEFAULT 0")
+            _add_column_if_missing(db.engine, "user", "session_version INTEGER NOT NULL DEFAULT 0")
+            _add_column_if_missing(db.engine, "smtp_config", "auth_type TEXT NOT NULL DEFAULT 'smtp'")
+            _add_column_if_missing(db.engine, "smtp_config", "oauth_client_id TEXT DEFAULT ''")
+            _add_column_if_missing(db.engine, "smtp_config", "oauth_client_secret_enc TEXT DEFAULT ''")
+            _add_column_if_missing(db.engine, "smtp_config", "oauth_tenant_id TEXT DEFAULT ''")
+            _add_column_if_missing(db.engine, "smtp_config", "oauth_refresh_token_enc TEXT DEFAULT ''")
+            _add_column_if_missing(db.engine, "smtp_config", "oauth_access_token_enc TEXT DEFAULT ''")
+            _add_column_if_missing(db.engine, "smtp_config", "oauth_token_expiry DATETIME")
+            # Seed initial profile or migrate legacy singleton
+            if Settings.query.first() is None:
+                db.session.add(Settings(name="Default", is_default=True, key_size=2048))
                 db.session.commit()
-        # Backfill profile_id for certificates created before profiles were introduced
-        try:
-            default_p = Settings.query.filter_by(is_default=True).first()
-            if default_p:
-                Certificate.query.filter_by(profile_id=None).update({"profile_id": default_p.id})
-                db.session.commit()
-        except Exception:
-            db.session.rollback()
-        # Migrate intermediates that pre-date named chains into a "Default Chain"
-        try:
-            orphans = IntermediateCert.query.filter_by(chain_id=None).all()
-            if orphans:
-                default_chain = CertChain.query.filter_by(name="Default Chain").first()
-                if default_chain is None:
-                    default_chain = CertChain(name="Default Chain",
-                                              description="Migrated from previous version")
-                    db.session.add(default_chain)
-                    db.session.flush()
-                for ic in orphans:
-                    ic.chain_id = default_chain.id
-                db.session.commit()
-        except Exception:
-            db.session.rollback()
+            else:
+                # Ensure exactly one profile is marked as the default
+                if not Settings.query.filter_by(is_default=True).first():
+                    first = Settings.query.order_by(Settings.id.asc()).first()
+                    first.is_default = True
+                    db.session.commit()
+            # Backfill profile_id for certificates created before profiles were introduced
+            try:
+                default_p = Settings.query.filter_by(is_default=True).first()
+                if default_p:
+                    Certificate.query.filter_by(profile_id=None).update({"profile_id": default_p.id})
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+            # Migrate intermediates that pre-date named chains into a "Default Chain"
+            try:
+                orphans = IntermediateCert.query.filter_by(chain_id=None).all()
+                if orphans:
+                    default_chain = CertChain.query.filter_by(name="Default Chain").first()
+                    if default_chain is None:
+                        default_chain = CertChain(name="Default Chain",
+                                                  description="Migrated from previous version")
+                        db.session.add(default_chain)
+                        db.session.flush()
+                    for ic in orphans:
+                        ic.chain_id = default_chain.id
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+            # flock is released when the `with open(...)` block exits.
 
     return app

@@ -226,6 +226,8 @@ sudo cp -r /tmp/ssl-manager-update/* /opt/ssl-manager/
 sudo bash /opt/ssl-manager/install.sh --upgrade
 ```
 
+> The upgrade preserves your `SECRET_KEY`, database, and port/worker settings while refreshing the application files, systemd unit, and nginx config. Re-running `install.sh` with no flag does the same thing — it auto-detects the existing install and upgrades.
+
 ---
 
 ## Network considerations

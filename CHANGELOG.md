@@ -7,6 +7,24 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Expiry notification emails — an optional daily digest of certificates, CAs, and intermediates nearing expiry, configurable under Settings → Notifications and delivered by a new systemd timer (`ssl-manager-notify.timer`).
+- The installer auto-detects an existing installation and runs as an upgrade when invoked with no flag; a new `--reinstall` flag forces the interactive installer.
+
+### Changed
+
+- `--upgrade` now performs a full refresh — it regenerates the systemd unit and nginx config from the current code in addition to application files and dependencies — while preserving the `SECRET_KEY`, database, and existing port/worker settings.
+
+### Fixed
+
+- Fixed a startup race where concurrent gunicorn workers could fail to boot with `table ... already exists` (service `status=3`); database schema initialization is now serialized with an exclusive lock.
+- The installer no longer regenerates `SECRET_KEY` when run against an existing installation, which previously made stored SMTP/OAuth secrets undecryptable.
+
+---
+
 ## [1.0.0] — 2026-03-16
 
 Initial production release.

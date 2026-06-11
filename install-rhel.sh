@@ -3,8 +3,9 @@
 # SSL Manager — RHEL / Rocky Linux / AlmaLinux / CentOS Stream installer
 #
 # Usage:
-#   sudo bash install-rhel.sh               # interactive install
-#   sudo bash install-rhel.sh --upgrade     # re-copy app files and restart service
+#   sudo bash install-rhel.sh               # install, or auto-upgrade if already installed
+#   sudo bash install-rhel.sh --upgrade     # full refresh, preserving config/secret/database
+#   sudo bash install-rhel.sh --reinstall   # force the interactive installer on an existing install
 #   sudo bash install-rhel.sh --uninstall   # remove service, files, and user
 #
 # Architecture
@@ -94,6 +95,29 @@ selinux_active() {
     command -v getenforce &>/dev/null && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]
 }
 
+# True if a previous installation is present. The env file is the authoritative
+# marker — it holds the SECRET_KEY that must never be regenerated on an upgrade.
+existing_install() {
+    [[ -f "${ENV_FILE}" || -f "${SERVICE_FILE}" || -d "${APP_DIR}" ]]
+}
+
+# Re-derive the listening port from the existing nginx config so an upgrade keeps
+# the operator's chosen port without re-prompting. Falls back to the default.
+detect_port() {
+    local p=""
+    [[ -f "${NGINX_CONF}" ]] && \
+        p="$(grep -oE 'listen 127\.0\.0\.1:[0-9]+' "${NGINX_CONF}" | head -1 | grep -oE '[0-9]+$')"
+    echo "${p:-${DEFAULT_PORT}}"
+}
+
+# Re-derive the gunicorn worker count from the existing systemd unit.
+detect_workers() {
+    local w=""
+    [[ -f "${SERVICE_FILE}" ]] && \
+        w="$(grep -oE -- '--workers[ =][0-9]+' "${SERVICE_FILE}" | head -1 | grep -oE '[0-9]+')"
+    echo "${w:-${DEFAULT_WORKERS}}"
+}
+
 # ---------------------------------------------------------------------------
 # Modes
 # ---------------------------------------------------------------------------
@@ -147,7 +171,23 @@ do_uninstall() {
 }
 
 do_upgrade() {
-    [[ -d "${APP_DIR}" ]] || error "No existing installation at ${APP_DIR}. Run without --upgrade to install first."
+    existing_install || error "No existing installation found. Run without --upgrade to install first."
+
+    echo
+    echo "=============================================="
+    echo "  SSL Manager — UPGRADE (existing install)"
+    echo "=============================================="
+    echo
+    info "This is an upgrade, not a fresh install."
+    info "Your SECRET_KEY, database, and port/worker settings are preserved."
+    echo
+
+    # Re-derive existing settings so the regenerated unit/nginx/SELinux config
+    # keep working exactly as before — no re-prompting required.
+    local port workers
+    port="$(detect_port)"
+    workers="$(detect_workers)"
+    info "Existing settings: nginx port ${port}, ${workers} gunicorn worker(s)."
 
     if [[ -f "${DATA_DIR}/ssl_manager.db" ]]; then
         info "Backing up database before upgrade…"
@@ -158,20 +198,46 @@ do_upgrade() {
         fi
     fi
 
-    info "Upgrading app files…"
+    # All of these are idempotent and re-derive their inputs, so an upgrade
+    # refreshes app files, dependencies, the systemd unit, SELinux policy, and
+    # the nginx config while leaving the operator's configuration and data alone.
+    create_user
+    create_directories
     copy_app_files
-    info "Updating Python dependencies…"
-    "${APP_DIR}/venv/bin/pip" install --quiet -r "${APP_DIR}/requirements.txt"
-    info "Reloading systemd units…"
+    create_venv
+    write_env_file ""                 # empty → write_env_file preserves the existing SECRET_KEY
+    write_systemd_unit "${workers}"
+    configure_selinux "${port}"
+    configure_nginx "${port}"
+
+    info "Reloading systemd and restarting services…"
     systemctl daemon-reload
+    systemctl enable --quiet "${APP_NAME}"
+    systemctl restart "${APP_NAME}"
+
+    # Restore SELinux contexts now that the RuntimeDirectory/socket exist, then
+    # reload nginx against the live socket.
+    restorecon_socket_dir
+    info "Reloading nginx…"
+    systemctl reload nginx 2>/dev/null || systemctl start nginx || \
+        warn "nginx reload/start failed. Check: sudo journalctl -u nginx --no-pager -n 30"
+
     systemctl enable --quiet "${APP_NAME}-backup.timer"
     systemctl restart "${APP_NAME}-backup.timer"
     systemctl enable --quiet "${APP_NAME}-notify.timer"
     systemctl restart "${APP_NAME}-notify.timer"
-    info "Restarting service…"
-    systemctl restart "${APP_NAME}"
-    info "Upgrade complete."
-    systemctl status "${APP_NAME}" --no-pager -l
+
+    # Brief pause so gunicorn can create the socket before we check status
+    sleep 2
+    systemctl is-active --quiet "${APP_NAME}" || {
+        warn "Service did not start cleanly after upgrade. Recent journal:"
+        journalctl -u "${APP_NAME}" --no-pager -n 20
+        warn "Full application traceback (if any): ${LOG_DIR}/error.log"
+        exit 1
+    }
+
+    echo
+    info "Upgrade complete. Service is running on 127.0.0.1:${port}."
     exit 0
 }
 
@@ -271,6 +337,25 @@ create_venv() {
 
 write_env_file() {
     local secret="$1"
+
+    # SECRET_KEY is the root of the Fernet key (HKDF) that encrypts stored SMTP
+    # and OAuth secrets. Rotating it makes all previously encrypted values
+    # permanently undecryptable, so an existing key is always preserved — even
+    # on a forced reinstall — regardless of what was passed in.
+    if [[ -f "${ENV_FILE}" ]]; then
+        local existing
+        existing="$(grep -E '^SECRET_KEY=' "${ENV_FILE}" | head -1 | cut -d= -f2-)"
+        if [[ -n "${existing}" ]]; then
+            [[ -n "${secret}" && "${secret}" != "${existing}" ]] && \
+                warn "Preserving existing SECRET_KEY (not rotating — it protects stored secrets)."
+            secret="${existing}"
+        fi
+    fi
+    if [[ -z "${secret}" ]]; then
+        secret="$(generate_secret)"
+        info "Generated a random 256-bit secret key."
+    fi
+
     info "Writing environment config to ${ENV_FILE}…"
     cat > "${ENV_FILE}" <<EOF
 # SSL Manager environment configuration
@@ -497,12 +582,14 @@ restorecon_socket_dir() {
 # Main
 # ---------------------------------------------------------------------------
 MODE="install"
+FORCE_FRESH=0
 for arg in "$@"; do
     case "$arg" in
         --uninstall) MODE="uninstall" ;;
         --upgrade)   MODE="upgrade"   ;;
+        --reinstall) MODE="install"; FORCE_FRESH=1 ;;
         --help|-h)
-            sed -n '2,20p' "$0" | sed 's/^# \?//'
+            sed -n '2,21p' "$0" | sed 's/^# \?//'
             exit 0
             ;;
         *) error "Unknown option: $arg" ;;
@@ -514,6 +601,16 @@ require_rhel
 
 [[ "$MODE" == "uninstall" ]] && do_uninstall
 [[ "$MODE" == "upgrade"   ]] && do_upgrade
+
+# A no-flag run against an existing installation is an upgrade, not a fresh
+# install. Re-running the interactive installer would re-prompt and overwrite
+# the env file (rotating SECRET_KEY and breaking stored secrets), so route to
+# the upgrade path automatically. Use --reinstall to override this.
+if [[ "$MODE" == "install" && "${FORCE_FRESH}" -eq 0 ]] && existing_install; then
+    warn "Existing installation detected at ${APP_DIR} — switching to upgrade mode."
+    warn "(To force the interactive installer instead, run: sudo bash install-rhel.sh --reinstall)"
+    do_upgrade
+fi
 
 # ---- Interactive install ----
 echo
@@ -614,4 +711,5 @@ warn "Treat backup archives at /var/backups/ssl-manager/ with the same sensitivi
 warn "Restrict backup storage access accordingly if offsite copies are made."
 echo
 warn "To upgrade after pulling new code:  sudo bash install-rhel.sh --upgrade"
+warn "  (re-running install-rhel.sh on an existing install auto-detects and upgrades)"
 warn "To remove everything:               sudo bash install-rhel.sh --uninstall"

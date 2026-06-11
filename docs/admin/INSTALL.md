@@ -67,12 +67,14 @@ The installer:
 3. Creates all directories with enforced ownership and permissions
 4. Copies application files to `/opt/ssl-manager/`
 5. Creates a Python virtual environment and installs all dependencies
-6. Writes the secret key and database URL to `/etc/ssl-manager/env`
+6. Writes the secret key and database URL to `/etc/ssl-manager/env` (on a re-run, an existing `SECRET_KEY` is preserved — never regenerated — because it encrypts stored SMTP/OAuth secrets)
 7. Installs and starts the `ssl-manager` systemd service
 8. Configures nginx as a reverse proxy with rate limiting
 9. Installs and enables the `ssl-manager-backup.timer` for daily database backups
 
 > **sqlite3:** The backup script requires the `sqlite3` CLI. Ubuntu 24.04 minimal server may not include it. If the first scheduled backup fails, install it with `sudo apt-get install -y sqlite3`.
+
+> **Re-running the installer:** Running `sudo bash install.sh` again on a host that already has SSL Manager auto-detects the existing installation and switches to **upgrade mode** — it skips the prompts and preserves your configuration, secret key, and database. See [Upgrading](#upgrading). Use `--reinstall` to force the interactive installer instead.
 
 ### 3. Verify the service is running
 
@@ -178,7 +180,9 @@ After pulling or transferring updated code:
 sudo bash install.sh --upgrade
 ```
 
-The upgrade script backs up the database, copies updated application files, reinstalls Python dependencies, and restarts the service. Schema migrations run automatically on the next service start — no manual SQL steps are required. See [Upgrading from Previous Versions](#upgrading-from-previous-versions) for version-specific notes.
+Re-running the installer with no flag does the same thing — it auto-detects the existing install and upgrades.
+
+The upgrade backs up the database, then refreshes the application files, Python dependencies, systemd unit, and nginx config from the new code. Your `SECRET_KEY`, database, and existing port/worker settings are **preserved** (the port and worker count are re-derived from the current nginx/systemd config, so there are no prompts). Schema migrations run automatically on the next service start — no manual SQL steps are required. See [Upgrading from Previous Versions](#upgrading-from-previous-versions) for version-specific notes.
 
 ### Uninstalling
 
@@ -301,7 +305,7 @@ Identical commands to Ubuntu — `systemctl status ssl-manager`, `journalctl -u 
 sudo bash install-rhel.sh --upgrade
 ```
 
-See [Upgrading from Previous Versions](#upgrading-from-previous-versions) for version-specific notes.
+As on Ubuntu, re-running `install-rhel.sh` with no flag auto-detects the existing install and upgrades, preserving your `SECRET_KEY`, database, and port/worker settings (and re-applying the SELinux and nginx configuration). Use `--reinstall` to force the interactive installer. See [Upgrading from Previous Versions](#upgrading-from-previous-versions) for version-specific notes.
 
 ### Uninstalling
 
@@ -945,7 +949,7 @@ sudo userdel --remove alice           # RHEL-family
 
 ## Upgrading from Previous Versions
 
-The `--upgrade` flag handles all routine upgrades: it backs up the database, copies updated application files, reinstalls Python dependencies, and restarts the service. **Schema changes are applied automatically** on the next service start — no manual SQL steps are ever required.
+The `--upgrade` flag handles all routine upgrades: it backs up the database, then refreshes the application files, Python dependencies, systemd unit, and nginx config. Your `SECRET_KEY`, database, and port/worker settings are preserved. Re-running the installer with no flag auto-detects the existing install and does the same thing. **Schema changes are applied automatically** on the next service start — no manual SQL steps are ever required.
 
 ```bash
 sudo bash install.sh --upgrade          # Ubuntu
@@ -954,9 +958,24 @@ sudo bash install-rhel.sh --upgrade     # RHEL-family
 
 ### Version history and migration notes
 
-#### Current release — Smart bundle import
+#### Current release — Expiry notifications, installer & startup reliability
 
-Added in the most recent update. No manual steps required on upgrade.
+No manual steps required on upgrade.
+
+**New features:**
+- **Expiry notification emails** — an optional daily digest (superadmin → Settings → Notifications) emails a colour-coded list of certificates, CAs, and intermediates expiring within a configurable threshold. Delivered by the new `ssl-manager-notify.timer`.
+
+**Reliability fixes:**
+- **Worker-boot race fixed** — concurrent gunicorn workers no longer race on schema initialization at startup. Previously a boot could fail with `table ... already exists` (service `status=3`, "Worker failed to boot"); schema bootstrap is now serialized with an exclusive lock.
+- **Installer auto-upgrade** — re-running `install.sh` / `install-rhel.sh` on an existing host now detects the installation and upgrades instead of starting a fresh interactive install. A new `--reinstall` flag forces the interactive installer.
+- **`SECRET_KEY` preserved on re-run** — the installer no longer regenerates the key on an existing install. Previously this could rotate the key and make stored SMTP/OAuth secrets undecryptable.
+
+**Schema migrations (automatic):**
+- `notification_config` — new table created to store expiry-notification settings.
+
+#### Smart bundle import
+
+Added in a prior update. No manual steps required on upgrade.
 
 **New features:**
 - **Smart P12/PFX import** — uploading a `.p12` or `.pfx` file now shows a live File Analysis preview (key type, certificate CN, expiry, detected intermediates, chain action) before import is confirmed.
