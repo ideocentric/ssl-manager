@@ -7,6 +7,12 @@
 #                 Copyright (C) 2026  Matt Comeione / ideocentric
 # ==============================================================================
 
+# Defer annotation evaluation so PEP 604 unions (e.g. `str | None`) below are
+# treated as strings and do NOT execute at import time. Without this, importing
+# this module on Python 3.9 (the RHEL 9 runtime) raises TypeError on the
+# `str | None` annotation and gunicorn workers fail to boot.
+from __future__ import annotations
+
 import base64
 import datetime
 import json
