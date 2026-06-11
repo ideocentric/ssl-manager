@@ -377,6 +377,38 @@ sudo firewall-cmd --permanent --add-port=587/tcp
 sudo firewall-cmd --reload
 ```
 
+### Recovering email after a SECRET_KEY change
+
+The SMTP password and all OAuth tokens are encrypted with a key derived from
+`SECRET_KEY`. If `SECRET_KEY` is ever changed — for example, an older installer
+re-run regenerated it instead of preserving the existing key — those stored
+secrets can no longer be decrypted and email fails **silently**: the
+configuration still appears enabled, but authentication uses an empty secret.
+
+`remediate_secret_key.py` detects and cleans up this situation. It is read-only
+by default:
+
+```bash
+# Report which stored secrets can no longer be decrypted (no changes):
+sudo -u ssl-manager /opt/ssl-manager/venv/bin/python \
+    /opt/ssl-manager/remediate_secret_key.py
+
+# Clear the dead secrets and disable SMTP, then re-enter them in the web UI
+# (Settings → SMTP) and re-enable:
+sudo -u ssl-manager /opt/ssl-manager/venv/bin/python \
+    /opt/ssl-manager/remediate_secret_key.py --apply
+
+# If you still have the PREVIOUS key, recover the secrets instead of clearing
+# them (decrypt with the old key, re-encrypt under the current one):
+sudo -u ssl-manager /opt/ssl-manager/venv/bin/python \
+    /opt/ssl-manager/remediate_secret_key.py --old-secret-key <previous-key> --apply
+```
+
+> Certificate and CA private keys are **not** affected — they are stored without
+> `SECRET_KEY`-based encryption and survive a key change. Note that `backup.sh`
+> backs up the database only, not `/etc/ssl-manager/env`, so a rotated key is not
+> recoverable from a backup; keep a copy of `SECRET_KEY` if you need portability.
+
 ---
 
 ## Cloud Deployment Prerequisites
