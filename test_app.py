@@ -102,6 +102,32 @@ def _make_self_signed_cert(key, domain="test.example.com", days=365):
     return cert.public_bytes(serialization.Encoding.PEM).decode()
 
 
+def _make_ca_cert(key, domain="ca.example.com", days=365):
+    """Return a self-signed CA certificate PEM (BasicConstraints CA:TRUE).
+
+    Chain imports reject end-entity certs via split_bundle_by_role/is_ca_cert,
+    so anything destined for a chain must carry CA:TRUE — which the plain
+    _make_self_signed_cert helper does not set.
+    """
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test Org"),
+        x509.NameAttribute(NameOID.COMMON_NAME, domain),
+    ])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=days))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM).decode()
+
+
 def _make_expired_cert(key, domain="expired.example.com"):
     """Return a self-signed cert that is already expired."""
     subject = issuer = x509.Name([
@@ -410,14 +436,8 @@ class TestCreateComponentsZip:
             names = zf.namelist()
         assert "chain.pem" in names
 
-    def test_csr_included_when_provided(self, signed_cert_pem, key_pem):
-        _, csr_pem = generate_key_and_csr("x.com", [], 1024, "", "", "", "", "", "")
-        buf = create_components_zip("example.com", signed_cert_pem, key_pem, [], csr_pem=csr_pem)
-        with ZipFile(buf) as zf:
-            names = zf.namelist()
-        assert "certificate.csr" in names
-
-    def test_csr_omitted_when_not_provided(self, signed_cert_pem, key_pem):
+    def test_csr_never_included(self, signed_cert_pem, key_pem):
+        # CSR was intentionally removed from the components ZIP export.
         buf = create_components_zip("example.com", signed_cert_pem, key_pem, [])
         with ZipFile(buf) as zf:
             names = zf.namelist()
@@ -643,7 +663,7 @@ class TestCertificateUploadRoute:
         resp = client.post(f"/certificates/{cert_record}/upload",
                            data={"signed_cert_pem": ""},
                            follow_redirects=True)
-        assert b"No certificate PEM provided" in resp.data
+        assert b"No certificate provided" in resp.data
 
     def test_upload_invalid_pem_shows_error(self, client, cert_record):
         resp = client.post(f"/certificates/{cert_record}/upload",
@@ -1284,8 +1304,8 @@ class TestChainImportRoute:
     def test_import_pem_text(self, flask_app, client, chain_record):
         key1 = _make_rsa_key()
         key2 = _make_rsa_key()
-        pem1 = _make_self_signed_cert(key1, "Import CA One")
-        pem2 = _make_self_signed_cert(key2, "Import CA Two")
+        pem1 = _make_ca_cert(key1, "Import CA One")
+        pem2 = _make_ca_cert(key2, "Import CA Two")
         bundle = pem1 + "\n" + pem2
 
         resp = client.post(
@@ -1304,7 +1324,7 @@ class TestChainImportRoute:
 
     def test_import_file_upload(self, flask_app, client, chain_record):
         key = _make_rsa_key()
-        pem = _make_self_signed_cert(key, "File Upload CA")
+        pem = _make_ca_cert(key, "File Upload CA")
 
         resp = client.post(
             f"/chains/{chain_record}/import",
@@ -1323,7 +1343,7 @@ class TestChainImportRoute:
 
     def test_import_skips_duplicates(self, flask_app, client, chain_record):
         key = _make_rsa_key()
-        pem = _make_self_signed_cert(key, "Dup CA")
+        pem = _make_ca_cert(key, "Dup CA")
 
         # Import once
         client.post(
@@ -1338,7 +1358,7 @@ class TestChainImportRoute:
             follow_redirects=True,
         )
         assert resp.status_code == 200
-        assert b"Skipped" in resp.data
+        assert b"duplicate" in resp.data
 
         with flask_app.app_context():
             count = IntermediateCert.query.filter_by(
