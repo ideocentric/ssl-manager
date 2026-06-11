@@ -323,7 +323,7 @@ SSL Manager can send password reset emails via SMTP. This step is optional — t
 
 | Method | When to use |
 |---|---|
-| **Standard SMTP** | Any mail provider that supports SMTP with username/password — Gmail (app password), SendGrid, Amazon SES, Mailgun, your own server |
+| **Standard SMTP** | Any mail provider reached over SMTP — with username/password (Gmail app password, SendGrid, Amazon SES, Mailgun, your own server) **or** unauthenticated against an internal relay (Authentication Method *None*). STARTTLS or implicit SSL can be enabled on any port. |
 | **Microsoft 365 OAuth** | Microsoft 365 / Exchange Online accounts where modern authentication is required |
 | **Google OAuth** | Google Workspace accounts using OAuth 2.0 |
 
@@ -344,6 +344,8 @@ SSL Manager can send password reset emails via SMTP. This step is optional — t
 | From address | `noreply@yourdomain.com` |
 | From name | `SSL Manager` |
 | Use TLS / Use SSL | Match your provider's requirement |
+
+> **Unauthenticated, encrypted relay (e.g. port 25 + STARTTLS):** For an internal relay that requires no login but supports TLS, set **Authentication Method** to **None**, set **Port** to your relay's port (commonly `25`), enable **STARTTLS**, and leave Username/Password blank. STARTTLS is not tied to a specific port — it upgrades the connection to TLS on whatever port you configure.
 
 **Microsoft 365 OAuth:**
 
