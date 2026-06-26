@@ -1,0 +1,28 @@
+# Minimal systemd-enabled RHEL-family image so install-rhel.sh can be exercised
+# end-to-end (systemctl, nginx service, socket, timers) inside a container.
+# Defaults to AlmaLinux 9 (RHEL 9 rebuild, Python 3.9 — the supported floor).
+# Rocky 9's minimal arm64 image has broken DNF *module* metadata, which breaks
+# `dnf install nginx` (nginx is a module stream on RHEL 9); AlmaLinux's container
+# images carry it correctly. Both are accepted by install-rhel.sh's require_rhel.
+# Run with: --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw
+#           --tmpfs /run --tmpfs /tmp
+ARG BASE=almalinux:9
+FROM ${BASE}
+
+ENV container=docker
+
+# systemd + plain python3 (RHEL ships python3 in its base; install-rhel.sh uses
+# it to mint the secret before its own dnf step). install-rhel.sh installs the
+# rest (nginx, sqlite, policycoreutils-python-utils, …) itself. Keep the DNF
+# metadata (no `clean all`) so module metadata stays available for nginx.
+RUN dnf -y install systemd python3 && \
+    rm -f /lib/systemd/system/multi-user.target.wants/* \
+          /etc/systemd/system/*.wants/* \
+          /lib/systemd/system/local-fs.target.wants/* \
+          /lib/systemd/system/sockets.target.wants/*udev* \
+          /lib/systemd/system/sockets.target.wants/*initctl* \
+          /lib/systemd/system/basic.target.wants/* \
+          /lib/systemd/system/anaconda.target.wants/* 2>/dev/null || true
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
