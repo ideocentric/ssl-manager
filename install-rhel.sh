@@ -88,7 +88,17 @@ require_rhel() {
 }
 
 generate_secret() {
-    python3 -c "import secrets; print(secrets.token_hex(32))"
+    # Mint a 256-bit hex secret. This runs during the interactive summary,
+    # BEFORE the package install step, so it must not assume python3 is present
+    # yet. Prefer openssl, then python3, then a /dev/urandom fallback that always
+    # works even on a minimal base (container, cloud image, fresh chroot).
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import secrets; print(secrets.token_hex(32))"
+    else
+        od -An -tx1 -N32 /dev/urandom | tr -d ' \n'
+    fi
 }
 
 selinux_active() {
