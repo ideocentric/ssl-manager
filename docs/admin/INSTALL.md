@@ -15,7 +15,7 @@
 | [Azure (VM)](#azure-vm) | Existing Azure accounts, enterprise agreements, Azure credits |
 | [Docker (local development)](#docker-local-development) | Development, testing, and feature validation — not for production |
 
-Cloud deployments (AWS and Azure) require Terraform and the relevant cloud CLI. See [Cloud Deployment Prerequisites](#cloud-deployment-prerequisites) for installation instructions covering macOS, Linux, and Windows — including [SSH key generation](#ssh-key-pair) for all platforms and [server-side user management](#managing-ssh-users-on-the-server).
+Cloud deployments (AWS and Azure) require Terraform **or** [OpenTofu](https://opentofu.org/) (its open-source fork — the configurations work with either) and the relevant cloud CLI. See [Cloud Deployment Prerequisites](#cloud-deployment-prerequisites) for installation instructions covering macOS, Linux, and Windows — including [SSH key generation](#ssh-key-pair) for all platforms and [server-side user management](#managing-ssh-users-on-the-server).
 
 All production methods share the same runtime stack: nginx → gunicorn → Flask → SQLite, with access via SSH tunnel only. See [REQUIREMENTS.md](REQUIREMENTS.md) for hardware sizing guidance.
 
@@ -424,7 +424,7 @@ sudo -u ssl-manager /opt/ssl-manager/venv/bin/python \
 
 ## Cloud Deployment Prerequisites
 
-The AWS and Azure deployments both use Terraform. Install the required tools on your local machine before proceeding.
+The AWS and Azure deployments both use Terraform — or, equivalently, [OpenTofu](https://opentofu.org/), its open-source fork. Install **one** of the two (plus the relevant cloud CLI) on your local machine before proceeding. The SSL Manager configurations in `deploy/aws/` and `deploy/azure/` are identical for both tools.
 
 ### Terraform
 
@@ -470,6 +470,40 @@ terraform version   # confirm install
 ```
 
 Option C — Manual: download the `.zip` from [developer.hashicorp.com/terraform/downloads](https://developer.hashicorp.com/terraform/downloads), extract `terraform.exe`, and add its folder to your `PATH`.
+
+### OpenTofu (drop-in alternative to Terraform)
+
+[OpenTofu](https://opentofu.org/) is an open-source, Linux Foundation fork of Terraform. The SSL Manager configurations work with it unchanged — same HCL, same `terraform.tfvars`, same state files. Install OpenTofu **instead of** Terraform if you prefer it; everywhere the deployment guides say `terraform <command>`, substitute `tofu <command>` (e.g. `tofu init`, `tofu plan`, `tofu apply`, `tofu destroy`). You do not need both tools.
+
+**macOS**
+```bash
+brew install opentofu
+tofu --version   # confirm install
+```
+
+**Linux (Debian / Ubuntu / RHEL / Fedora)**
+```bash
+# Official installer — auto-detects the distribution and configures the package repo
+curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o install-opentofu.sh
+chmod +x install-opentofu.sh
+./install-opentofu.sh --install-method deb      # use 'rpm' on RHEL / Fedora
+rm -f install-opentofu.sh
+tofu --version   # confirm install
+```
+
+**Windows**
+
+Option A — winget (Windows 10/11, recommended):
+```powershell
+winget install --exact --id=OpenTofu.Tofu
+tofu --version   # confirm install
+```
+
+Option B — Chocolatey:
+```powershell
+choco install opentofu
+tofu --version   # confirm install
+```
 
 ---
 

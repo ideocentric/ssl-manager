@@ -1,3 +1,6 @@
+# This configuration works unchanged with both Terraform (>= 1.5) and OpenTofu
+# (>= 1.6). Every `terraform <cmd>` in the docs has an identical `tofu <cmd>`
+# equivalent; the .tfvars and state files are the same for either tool.
 terraform {
   required_version = ">= 1.5"
 
