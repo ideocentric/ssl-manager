@@ -27,11 +27,20 @@ Use this method for physical hardware, on-premises virtual machines, or any VPS 
 
 ### Requirements
 
-- Ubuntu 24.04 LTS (recommended), 22.04 LTS, or 20.04 LTS
+- Ubuntu 26.04 LTS, 24.04 LTS (recommended), 22.04 LTS, or 20.04 LTS
 - Root or `sudo` access
 - Outbound internet access (for `apt-get` and `pip`)
 - Minimum: 1 vCPU, 1 GB RAM, 10 GB disk
 - Recommended: 1–2 vCPU, 2 GB RAM, 20 GB disk
+
+> **Python version:** The installer uses the distribution's default Python 3 —
+> from 3.8 on 20.04 through **3.14 on 26.04** — and all dependencies install as
+> prebuilt wheels, so no compiler toolchain is exercised at install time.
+> `requirements.txt` selects a compatible `gunicorn` per interpreter via
+> environment markers (23.0.0 on Python < 3.10, 26.0.0 on ≥ 3.10), so a single
+> file spans every supported release (including RHEL 9's Python 3.9). All
+> combinations are validated by the test harness — see
+> [Pre-Deployment Testing](#pre-deployment-testing-deploytest).
 
 ### 1. Get the code
 
@@ -889,6 +898,67 @@ docker compose -f docker-compose.yml -f docker-compose.design.yml up --build
 Seed credentials: `designer / design123` (superadmin), `alice / design123` (user). See `seed_design.py` for the full dataset.
 
 Full developer workflow documentation, including the complete Docker command reference, is in [WORKFLOW.md — Section 1](../developer/WORKFLOW.md#1-docker-development-environment).
+
+---
+
+## Pre-Deployment Testing (deploy/test/)
+
+For maintainers: `deploy/test/` is a Docker-based harness that validates the
+installers against every supported OS and CPU architecture in disposable
+containers — before any real server is touched. It is **not** required to deploy
+SSL Manager; use it when changing dependencies, the installers, or qualifying a
+new OS release.
+
+### Requirements
+
+- Docker (Desktop or Engine) with the daemon running
+- For cross-architecture runs on a single host, the QEMU/binfmt emulators:
+  ```bash
+  docker run --privileged --rm tonistiigi/binfmt --install amd64,arm64
+  ```
+
+### Two layers of checks
+
+| Script | What it proves |
+|---|---|
+| `run-matrix.sh` | **Dependency + app layer.** In a clean container per OS/arch: installs the same apt packages as `install.sh`, builds the venv, runs `pip install -r requirements.txt` (asserting wheels resolve — no source builds), runs the full `pytest` suite, and boots gunicorn to serve a live request. |
+| `install-matrix.sh` | **Full installer, end-to-end.** Boots a systemd-enabled container, runs `install.sh` non-interactively, then `verify-install.sh` asserts the service + timers are active, the socket and file permissions are correct, and a request through nginx → gunicorn returns a valid HTTP response. |
+
+Supporting files: `Dockerfile.systemd` (Ubuntu systemd image), `Dockerfile.systemd-rhel` (AlmaLinux 9 image for `install-rhel.sh`), `preflight.sh` (the in-container dependency check), and `verify-install.sh` (the OS-agnostic post-install assertions).
+
+### Running
+
+```bash
+# Dependency + app matrix across Ubuntu 24.04/26.04, amd64 + arm64 (default)
+bash deploy/test/run-matrix.sh
+
+# Full install.sh matrix (systemd containers)
+bash deploy/test/install-matrix.sh
+
+# Narrow the matrix with env vars
+IMAGES="ubuntu:26.04" PLATFORMS="linux/arm64" bash deploy/test/install-matrix.sh
+
+# install-rhel.sh on AlmaLinux 9 (Python 3.9 — the supported floor)
+docker build --build-arg BASE=almalinux:9 -t ssl-mgr-rhel \
+  -f deploy/test/Dockerfile.systemd-rhel deploy/test
+# then run it with systemd (see the Dockerfile header for the exact flags) and
+# execute install-rhel.sh + deploy/test/verify-install.sh inside the container.
+```
+
+### Known container/emulation limitations
+
+These are artifacts of testing in containers and do **not** affect real servers:
+
+- **systemd sandboxing is not fully reproducible in a container.** The unit's
+  hardening directives (`ProtectSystem`, `PrivateDevices`, `SystemCallFilter`, …)
+  are validated on the **native** architecture; under QEMU emulation a service
+  start can fail with `status=226/NAMESPACE` because the emulation layer cannot
+  set up the required mount namespaces (notably Ubuntu 26.04 / systemd 259 under
+  `linux/amd64` emulation on an arm64 host). Run the install matrix on the native
+  arch and rely on `run-matrix.sh` for the other.
+- **Rocky Linux 9's minimal arm64 image** ships broken DNF *module* metadata,
+  which breaks `dnf install nginx`; the RHEL harness uses **AlmaLinux 9** instead
+  (both are accepted by `install-rhel.sh`).
 
 ---
 
