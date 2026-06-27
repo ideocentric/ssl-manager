@@ -1,6 +1,6 @@
 # SSL Manager — AWS Deployment
 
-Terraform configuration that provisions a hardened AWS EC2 instance running SSL Manager.
+Terraform (or [OpenTofu](https://opentofu.org/)) configuration that provisions a hardened AWS EC2 instance running SSL Manager. The configuration is identical for both tools.
 
 ## What is created
 
@@ -39,7 +39,7 @@ The security group rules update in place in seconds; no instance restart is requ
 
 | Tool | Install |
 |---|---|
-| [Terraform](https://developer.hashicorp.com/terraform/downloads) | `brew install terraform` / [hashicorp.com](https://developer.hashicorp.com/terraform/downloads) |
+| [Terraform](https://developer.hashicorp.com/terraform/downloads) **or** [OpenTofu](https://opentofu.org/docs/intro/install/) | `brew install terraform` *or* `brew install opentofu` |
 | [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) | `brew install awscli` / [AWS docs](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) |
 
 ### 2. AWS credentials
@@ -76,6 +76,8 @@ ssh-keygen -t ed25519 -C "ssl-manager-aws"
 ---
 
 ## Deploy
+
+> **Terraform or OpenTofu:** Every `terraform` command below works identically with [OpenTofu](https://opentofu.org/) — substitute `tofu` for `terraform` (`tofu init`, `tofu plan`, `tofu apply`, `tofu destroy`, `tofu output`). The `.tf` files, `terraform.tfvars`, and state files are the same for either tool. Use whichever you installed in the prerequisites.
 
 ### 1. Configure variables
 

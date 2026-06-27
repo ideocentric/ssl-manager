@@ -1,6 +1,6 @@
 # SSL Manager — Azure Deployment
 
-Terraform configuration that provisions a hardened Azure VM running SSL Manager.
+Terraform (or [OpenTofu](https://opentofu.org/)) configuration that provisions a hardened Azure VM running SSL Manager. The configuration is identical for both tools.
 
 ## What is created
 
@@ -37,7 +37,7 @@ The NSG rule updates in place in seconds; no VM restart is required.
 
 | Tool | Install |
 |---|---|
-| [Terraform](https://developer.hashicorp.com/terraform/downloads) | `brew install terraform` / [hashicorp.com](https://developer.hashicorp.com/terraform/downloads) |
+| [Terraform](https://developer.hashicorp.com/terraform/downloads) **or** [OpenTofu](https://opentofu.org/docs/intro/install/) | `brew install terraform` *or* `brew install opentofu` |
 | [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) | `brew install azure-cli` / [Microsoft docs](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
 
 ### 2. Azure login
@@ -79,6 +79,8 @@ ssh-keygen -t ed25519 -C "ssl-manager-azure"
 ---
 
 ## Deploy
+
+> **Terraform or OpenTofu:** Every `terraform` command below works identically with [OpenTofu](https://opentofu.org/) — substitute `tofu` for `terraform` (`tofu init`, `tofu plan`, `tofu apply`, `tofu destroy`, `tofu output`). The `.tf` files, `terraform.tfvars`, and state files are the same for either tool. Use whichever you installed in the prerequisites.
 
 ### 1. Configure variables
 
