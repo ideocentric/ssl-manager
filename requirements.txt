@@ -1,9 +1,16 @@
 # Runtime dependencies — installed on the server by install.sh / install-rhel.sh.
-# Keep this list minimal and compatible with the oldest supported runtime
-# (RHEL 9 ships Python 3.9), so do NOT add packages that require Python 3.10+.
+# Keep this list minimal and compatible with the OLDEST supported runtime
+# (RHEL 9 ships Python 3.9), so unmarked packages must NOT require Python 3.10+.
+# Where a single pin cannot span the whole range (Python 3.9 on RHEL 9 through
+# Python 3.14 on Ubuntu 26.04 LTS), use environment markers — see gunicorn below.
 # Documentation/build tooling lives in requirements-docs.txt instead.
 Flask==3.1.3
 Flask-SQLAlchemy==3.1.1
 cryptography==46.0.7
-gunicorn==23.0.0
 flask-login==0.6.3
+
+# gunicorn 23.0.0 supports Python 3.9 (RHEL 9) but predates 3.13/3.14 support;
+# gunicorn 26.0.0 targets modern Python but requires >=3.10. Markers give each
+# interpreter a compatible release from one requirements file.
+gunicorn==23.0.0 ; python_version < "3.10"
+gunicorn==26.0.0 ; python_version >= "3.10"

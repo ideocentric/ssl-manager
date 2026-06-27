@@ -74,7 +74,17 @@ require_ubuntu() {
 }
 
 generate_secret() {
-    python3 -c "import secrets; print(secrets.token_hex(32))"
+    # Mint a 256-bit hex secret. This runs during the interactive summary,
+    # BEFORE install_packages, so it must not assume python3 is present yet.
+    # Prefer openssl, then python3, then a /dev/urandom fallback that always
+    # works even on a minimal base (container, cloud image, fresh chroot).
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import secrets; print(secrets.token_hex(32))"
+    else
+        od -An -tx1 -N32 /dev/urandom | tr -d ' \n'
+    fi
 }
 
 # True if a previous installation is present. The env file is the authoritative
@@ -478,7 +488,12 @@ EOF
     rm -f /etc/nginx/sites-enabled/default
 
     nginx -t || error "nginx configuration test failed — check ${NGINX_CONF}"
-    systemctl reload nginx
+    # Ensure nginx is enabled and actually running before loading our config.
+    # A bare `reload` assumes nginx is already up — true after a normal apt
+    # install, but not in containers (policy-rc.d), minimal/cloud images, or
+    # after a manual stop. enable + reload-or-restart handles all cases.
+    systemctl enable --quiet nginx 2>/dev/null || true
+    systemctl reload-or-restart nginx
     info "nginx configured. Listening on 127.0.0.1:${port}"
 }
 

@@ -1,0 +1,31 @@
+# Minimal systemd-enabled Ubuntu image so install.sh can be exercised
+# end-to-end (systemctl, nginx service, socket, timers) inside a container.
+# Run with: --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw
+#           --tmpfs /run --tmpfs /run/lock
+# See deploy/test/install-matrix.sh, which wires all of that up.
+ARG BASE=ubuntu:26.04
+FROM ${BASE}
+
+ENV DEBIAN_FRONTEND=noninteractive container=docker
+
+# systemd + sudo; bash runs install.sh. install.sh installs python3-venv, pip,
+# nginx, sqlite3, … itself. We pre-seed plain `python3` only because a real
+# Ubuntu Server base already ships it — install.sh uses python3 to generate the
+# secret key before its own apt step runs, so a faithful base must have it.
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        systemd systemd-sysv sudo bash ca-certificates python3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    # Docker base images ship a policy-rc.d that denies all service starts, so
+    # apt-installed daemons (nginx) never auto-start the way they would on a real
+    # server. Allow starts so the container faithfully mirrors a server boot.
+    printf '#!/bin/sh\nexit 0\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d && \
+    # Strip units that are pointless / problematic inside a container so systemd
+    # reaches a usable state quickly.
+    find /etc/systemd/system /lib/systemd/system \
+        -path '*.wants/*' \
+        \( -name '*udev*' -o -name '*getty*' -o -name '*initctl*' \) \
+        -delete 2>/dev/null || true
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
