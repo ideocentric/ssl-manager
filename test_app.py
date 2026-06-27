@@ -42,6 +42,7 @@ import importlib.util
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -795,10 +796,6 @@ class TestDownloadPkcs12:
         assert resp.status_code == 302
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("jks") is None,
-    reason="pyjks not installed",
-)
 class TestDownloadJks:
     def test_returns_bytes(self, client, cert_record):
         resp = client.post(f"/certificates/{cert_record}/download/jks",
@@ -827,6 +824,64 @@ class TestDownloadJks:
         resp = client.post(f"/certificates/{cert_id}/download/jks",
                            data={"password": "x", "alias": "x"})
         assert resp.status_code == 302
+
+
+class TestJksWriter:
+    """Tests for the dependency-free JKS writer (app/jks_writer.py).
+
+    The golden test is the correctness guarantee and needs no third-party JKS
+    package — the committed fixture was verified loadable by Java `keytool` and
+    by pyjks at authoring time (see tests/fixtures/jks/). The optional pyjks
+    cross-check is skipped, not failed, when pyjks is absent, so the suite never
+    depends on the package we vendored away from.
+    """
+
+    FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "jks"
+
+    def _key_and_chain(self):
+        key = serialization.load_pem_private_key(
+            (self.FIXTURES / "leaf_key.pem").read_bytes(), password=None)
+        key_der = key.private_bytes(
+            serialization.Encoding.DER,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption())
+        leaf = x509.load_pem_x509_certificate((self.FIXTURES / "leaf.crt").read_bytes())
+        inter = x509.load_pem_x509_certificate((self.FIXTURES / "intermediate.crt").read_bytes())
+        chain = [leaf.public_bytes(serialization.Encoding.DER),
+                 inter.public_bytes(serialization.Encoding.DER)]
+        return key_der, chain
+
+    def test_golden_known_answer(self):
+        """Byte-for-byte regression lock against a keytool/pyjks-verified JKS.
+        Requires no JKS package to run."""
+        from app.jks_writer import build_jks
+        key_der, chain = self._key_and_chain()
+        out = build_jks(key_der, chain, "changeit", alias="mykey",
+                        iv=bytes(range(20)), timestamp_ms=1_700_000_000_000)
+        golden = (self.FIXTURES / "keystore.golden.jks").read_bytes()
+        assert out[:4] == b"\xfe\xed\xfe\xed"
+        assert out == golden
+
+    def test_random_iv_makes_output_nondeterministic(self):
+        from app.jks_writer import build_jks
+        key_der, chain = self._key_and_chain()
+        a = build_jks(key_der, chain, "changeit", alias="mykey")
+        b = build_jks(key_der, chain, "changeit", alias="mykey")
+        assert a != b
+        assert a[:4] == b[:4] == b"\xfe\xed\xfe\xed"
+
+    @pytest.mark.skipif(importlib.util.find_spec("jks") is None,
+                        reason="pyjks not installed (optional cross-check only)")
+    def test_roundtrips_through_pyjks(self):
+        import jks as pyjks
+        from app.jks_writer import build_jks
+        key_der, chain = self._key_and_chain()
+        out = build_jks(key_der, chain, "changeit", alias="mykey")
+        ks = pyjks.KeyStore.loads(out, "changeit")
+        pk = ks.private_keys["mykey"]
+        pk.decrypt("changeit")
+        assert pk.pkey_pkcs8 == key_der
+        assert [c[1] for c in pk.cert_chain] == chain
 
 
 class TestDownloadDer:

@@ -420,8 +420,12 @@ def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password, name=None
 
 
 def create_jks(cert_pem, key_pem, intermediates_pem_list, store_password, alias="certificate"):
-    """Create JKS keystore. Returns bytes."""
-    import jks
+    """Create a JKS keystore with the key and its certificate chain. Returns bytes.
+
+    Backed by the dependency-free app.jks_writer — no pyjks and no JRE/keytool
+    are required at runtime.
+    """
+    from .jks_writer import build_jks
 
     key = serialization.load_pem_private_key(key_pem.encode(), password=None)
     key_der = key.private_bytes(
@@ -431,9 +435,7 @@ def create_jks(cert_pem, key_pem, intermediates_pem_list, store_password, alias=
     )
 
     cert = x509.load_pem_x509_certificate(cert_pem.encode())
-    cert_der = cert.public_bytes(serialization.Encoding.DER)
-
-    cert_chain_der = [cert_der]
+    cert_chain_der = [cert.public_bytes(serialization.Encoding.DER)]
     for pem in intermediates_pem_list:
         if pem and pem.strip():
             try:
@@ -442,22 +444,7 @@ def create_jks(cert_pem, key_pem, intermediates_pem_list, store_password, alias=
             except Exception:
                 pass
 
-    entry = jks.PrivateKeyEntry.new(alias, cert_chain_der, key_der)
-
-    if isinstance(store_password, bytes):
-        store_password = store_password.decode()
-
-    keystore = jks.KeyStore.new("jks", [entry])
-
-    with tempfile.NamedTemporaryFile(suffix=".jks", delete=False) as tmp:
-        tmp_path = tmp.name
-
-    try:
-        keystore.save(tmp_path, store_password)
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    finally:
-        os.unlink(tmp_path)
+    return build_jks(key_der, cert_chain_der, store_password, alias=alias)
 
 
 def create_p7b(cert_pem_list):

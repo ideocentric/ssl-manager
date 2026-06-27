@@ -206,8 +206,9 @@ All Python dependencies are installed into an isolated virtual environment at `/
 | `Flask-SQLAlchemy` | 3.1.1 | SQLAlchemy ORM integration for Flask; manages the SQLite connection pool |
 | `Flask-Login` | 0.6.3 | User session management, login/logout, `current_user` context, `@login_required` decorator |
 | `cryptography` | 46.0.7 | RSA key generation, CSR construction, certificate parsing, PKCS#12 export; uses OpenSSL bindings |
-| `pyjks` | 20.0.0 | Java KeyStore (JKS) file generation for the `.jks` download format |
 | `gunicorn` | 23.0.0 | Production WSGI server; runs the Flask app as multiple worker processes behind the nginx Unix socket |
+
+> **Java KeyStore (`.jks`) export has no dependency.** It is produced by a small, self-contained writer (`app/jks_writer.py`, standard library only) — no `pyjks` package and no Java/JRE are required. The writer's output is verified byte-for-byte against a fixture confirmed loadable by Java `keytool` (see `tests/fixtures/jks/`).
 
 The `pip install` step runs during `install.sh`/`install-rhel.sh` and again during `--upgrade`.
 
