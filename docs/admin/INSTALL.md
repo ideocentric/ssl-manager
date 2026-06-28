@@ -1096,17 +1096,29 @@ sudo bash install-rhel.sh --upgrade     # RHEL-family
 
 ### Version history and migration notes
 
-#### Current release — Expiry notifications, installer & startup reliability
+#### Current release — Expiry notifications, platform support, installer & chain-PEM hygiene
 
-No manual steps required on upgrade.
+No manual steps required on upgrade (one optional cleanup for older installs — see *Chain PEM hygiene* below).
 
 **New features:**
 - **Expiry notification emails** — an optional daily digest (superadmin → Settings → Notifications) emails a colour-coded list of certificates, CAs, and intermediates expiring within a configurable threshold. Delivered by the new `ssl-manager-notify.timer`.
+- **Ubuntu 26.04 LTS / Python 3.14 support** — `requirements.txt` selects a compatible `gunicorn` per interpreter via environment markers, so a single dependency set spans RHEL 9's Python 3.9 through Ubuntu 26.04's Python 3.14. Validated on Ubuntu 24.04/26.04 and AlmaLinux 9, amd64 and arm64.
+- **OpenTofu supported** — the AWS and Azure Terraform configurations work unchanged with [OpenTofu](https://opentofu.org/); substitute `tofu` for `terraform`. See [Cloud Deployment Prerequisites](#cloud-deployment-prerequisites).
 
 **Reliability fixes:**
 - **Worker-boot race fixed** — concurrent gunicorn workers no longer race on schema initialization at startup. Previously a boot could fail with `table ... already exists` (service `status=3`, "Worker failed to boot"); schema bootstrap is now serialized with an exclusive lock.
 - **Installer auto-upgrade** — re-running `install.sh` / `install-rhel.sh` on an existing host now detects the installation and upgrades instead of starting a fresh interactive install. A new `--reinstall` flag forces the interactive installer.
 - **`SECRET_KEY` preserved on re-run** — the installer no longer regenerates the key on an existing install. Previously this could rotate the key and make stored SMTP/OAuth secrets undecryptable.
+- **Installer hardening** — secret generation no longer assumes `python3` exists before the package step, and the Ubuntu installer enables and reload-or-restarts nginx rather than assuming it is already running (robust on lean/container/cloud-init bases).
+
+**Chain PEM hygiene:**
+- **Intermediate PEM rendering fixed** — the chain edit modal previously showed PEM with literal `&#10;` instead of line breaks (a display-only double-escape; stored data was unaffected).
+- **Line endings normalized on import** — pasting a bundle into a text area submits it with CRLF (standard browser behaviour), which was stored verbatim and surfaced as stray characters in exported `fullchain.pem`. Imports now store LF.
+- **Optional cleanup for older installs** — if a chain was imported before this release, normalize the stored rows in place with the bundled tool (dry-run first):
+  ```bash
+  /opt/ssl-manager/venv/bin/python /opt/ssl-manager/remediate_chain_entities.py          # report
+  /opt/ssl-manager/venv/bin/python /opt/ssl-manager/remediate_chain_entities.py --apply  # fix
+  ```
 
 **Schema migrations (automatic):**
 - `notification_config` — new table created to store expiry-notification settings.

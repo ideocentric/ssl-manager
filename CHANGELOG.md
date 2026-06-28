@@ -14,12 +14,17 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Expiry notification emails — an optional daily digest of certificates, CAs, and intermediates nearing expiry, configurable under Settings → Notifications and delivered by a new systemd timer (`ssl-manager-notify.timer`).
 - The installer auto-detects an existing installation and runs as an upgrade when invoked with no flag; a new `--reinstall` flag forces the interactive installer.
 - `remediate_secret_key.py` — operator tool to detect SMTP/OAuth secrets orphaned by a `SECRET_KEY` change; reports by default, clears and disables SMTP with `--apply`, or recovers them with `--old-secret-key` if the previous key is available.
+- Ubuntu 26.04 LTS / Python 3.14 support. `requirements.txt` selects `gunicorn` per interpreter via environment markers (23.0.0 on Python < 3.10 for RHEL 9; 26.0.0 on ≥ 3.10), so a single file spans Python 3.9–3.14; `cryptography` installs from a prebuilt wheel across that range. Validated on Ubuntu 24.04/26.04 and RHEL 9 (AlmaLinux 9), amd64 and arm64.
+- OpenTofu documented as a drop-in alternative to Terraform for the AWS and Azure deployments — the `deploy/aws` and `deploy/azure` configurations are identical for both tools.
+- `remediate_chain_entities.py` — operator tool to clean stored chain PEM corrupted by HTML-entity escaping (literal `&#10;`) or CRLF line endings; reports by default, repairs valid certificates in place with `--apply`, and `--include-leaf` also scans leaf certificates.
+- `deploy/test/` — a Docker test harness that validates dependency resolution and full `install.sh`/`install-rhel.sh` runs in disposable containers across Ubuntu 24.04/26.04 and AlmaLinux 9.
 
 ### Changed
 
 - Replaced the unmaintained `pyjks` dependency with a small, self-contained JKS writer (`app/jks_writer.py`, standard library only) for `.jks` export. Removes `pyjks` and its five transitive packages from the runtime, needs no Java/JRE, and produces byte-identical keystores (verified loadable by Java `keytool`). Correctness is locked by a committed golden-vector test that requires no third-party JKS package.
 - `--upgrade` now performs a full refresh — it regenerates the systemd unit and nginx config from the current code in addition to application files and dependencies — while preserving the `SECRET_KEY`, database, and existing port/worker settings.
 - Clarified the Standard SMTP encryption options: relabeled "STARTTLS (port 587)" to indicate STARTTLS is not tied to a fixed port and added guidance for an unauthenticated, STARTTLS-encrypted relay (Authentication Method *None*, e.g. port 25). The capability already existed; only the form labels/help text changed.
+- Installer hardening: `generate_secret` no longer assumes `python3` is present before the package-install step (falls back openssl → python3 → `/dev/urandom`), and the Ubuntu installer's nginx step enables and `reload-or-restart`s nginx instead of assuming it is already running. Makes install robust on lean/container/cloud-init bases.
 
 ### Fixed
 
@@ -27,6 +32,9 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The installer no longer regenerates `SECRET_KEY` when run against an existing installation, which previously made stored SMTP/OAuth secrets undecryptable.
 - The server no longer installs documentation tooling. `weasyprint`/`playwright` moved out of `requirements.txt` into `requirements-docs.txt`, so installs/upgrades no longer fail on RHEL 9 (Python 3.9) where `weasyprint==69.0` requires Python 3.10+. Runtime dependencies are unchanged and remain 3.9-compatible.
 - The installers now install the `sqlite3`/`sqlite` CLI, which `backup.sh` requires for the pre-upgrade database backup and integrity checks.
+- Certificate chain intermediate PEM no longer displays as literal `&#10;` instead of line breaks. The edit modal's PEM attribute was double-escaped (`| e | replace('\n','&#10;')` on a MarkupSafe value produced `&amp;#10;`, which the browser decoded to the literal text `&#10;`); stored data was never affected.
+- PEM line endings are normalized to LF on import. Pasting a bundle into a text area submits it with CRLF (HTML form convention), which was stored verbatim and surfaced as stray characters in exported `fullchain.pem`. Imports (paste and file upload) now store LF; `remediate_chain_entities.py --apply` cleans rows saved before this fix.
+- The Docker image now includes `seed_design.py`, so the design-seed Compose overlay (`docker-compose.design.yml`) runs without a manual file copy.
 
 ---
 
