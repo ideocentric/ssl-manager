@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY wsgi.py .
 COPY app/ app/
 COPY backup.sh .
+# Design-seed tooling: used by docker-compose.design.yml to populate demo data.
+# Harmless in the runtime image (only runs when explicitly invoked).
+COPY seed_design.py .
 
 # Persist the SQLite database via a volume
 VOLUME ["/app/instance"]
