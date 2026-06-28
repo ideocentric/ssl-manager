@@ -638,6 +638,11 @@ ssl-manager/
 | Flask-SQLAlchemy | ORM / SQLite persistence |
 | Flask-Login | Session-based authentication |
 | cryptography | RSA key gen, CSR, x509 parsing, PKCS#12, DER |
-| pyjks | Java KeyStore (JKS) creation |
 | gunicorn | Production WSGI server |
 | openssl (system) | P7B/PKCS#7 bundle generation |
+
+Java KeyStore (JKS) export uses a small, self-contained writer (`app/jks_writer.py`, standard library only) — no third-party JKS package or JRE required.
+
+## Acknowledgments
+
+SSL Manager was built with the assistance of [Claude](https://claude.com/claude-code) (Anthropic), used as an AI pair-programmer. This project-level acknowledgment stands in for per-commit co-author trailers.
