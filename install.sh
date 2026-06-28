@@ -282,6 +282,7 @@ copy_app_files() {
     cp "${SCRIPT_DIR}/backup.sh"        "${APP_DIR}/"
     cp "${SCRIPT_DIR}/notify_expiry.py" "${APP_DIR}/"
     cp "${SCRIPT_DIR}/remediate_secret_key.py" "${APP_DIR}/"
+    cp "${SCRIPT_DIR}/remediate_chain_entities.py" "${APP_DIR}/"
     cp -r "${SCRIPT_DIR}/app"           "${APP_DIR}/"
 
     # Install systemd units (owned by root, not inside APP_DIR)

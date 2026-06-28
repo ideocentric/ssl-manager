@@ -2101,3 +2101,91 @@ class TestChainPemNewlineEncoding:
             r"\|\s*e\s*\|\s*replace\(\s*['\"]\\n['\"]\s*,\s*['\"]&#10;['\"]")
         offenders = [p.name for p in tpl_dir.glob("*.html") if pattern.search(p.read_text())]
         assert not offenders, f"buggy newline-entity filter still present in: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# remediate_chain_entities.py — repairs legacy rows where chain PEM was stored
+# with HTML entities ('&#10;') instead of newlines. Simulates the legacy
+# corrupted state by inserting a bad row directly, then exercises the tool.
+# ---------------------------------------------------------------------------
+class TestChainEntityRemediation:
+    def test_decode_entities_recovers_single_escape(self, rsa_key):
+        from remediate_chain_entities import decode_entities
+        pem = _make_ca_cert(rsa_key, "Test CA")
+        recovered = decode_entities(pem.replace("\n", "&#10;"))
+        x509.load_pem_x509_certificate(recovered.strip().encode())
+
+    def test_decode_entities_recovers_double_escape(self, rsa_key):
+        from remediate_chain_entities import decode_entities
+        pem = _make_ca_cert(rsa_key, "Test CA")
+        recovered = decode_entities(pem.replace("\n", "&amp;#10;"))
+        x509.load_pem_x509_certificate(recovered.strip().encode())
+
+    def test_dryrun_reports_without_changing(self, flask_app, rsa_key):
+        from remediate_chain_entities import remediate
+        corrupted = _make_ca_cert(rsa_key, "Corrupt CA").replace("\n", "&#10;")
+        with flask_app.app_context():
+            chain = CertChain(name="Remediate DryRun")
+            db.session.add(chain)
+            db.session.commit()
+            ic = IntermediateCert(name="Corrupt", pem_data=corrupted, order=0, chain_id=chain.id)
+            db.session.add(ic)
+            db.session.commit()
+            ic_id = ic.id
+            repaired, unrepairable = remediate(apply=False)
+            assert any(f"id={ic_id} " in r for r in repaired)
+            assert not unrepairable
+            db.session.expire_all()
+            assert db.session.get(IntermediateCert, ic_id).pem_data == corrupted  # unchanged
+
+    def test_apply_repairs_in_place(self, flask_app, rsa_key):
+        from remediate_chain_entities import remediate
+        corrupted = _make_ca_cert(rsa_key, "Corrupt CA").replace("\n", "&#10;")
+        with flask_app.app_context():
+            chain = CertChain(name="Remediate Apply")
+            db.session.add(chain)
+            db.session.commit()
+            ic = IntermediateCert(name="Corrupt", pem_data=corrupted, order=0, chain_id=chain.id)
+            db.session.add(ic)
+            db.session.commit()
+            ic_id = ic.id
+            repaired, unrepairable = remediate(apply=True)
+            assert any(f"id={ic_id} " in r for r in repaired)
+            assert not unrepairable
+            db.session.expire_all()
+            fixed = db.session.get(IntermediateCert, ic_id).pem_data
+            assert "&#10;" not in fixed and "&amp;" not in fixed
+            x509.load_pem_x509_certificate(fixed.encode())  # now loadable
+
+    def test_clean_rows_untouched(self, flask_app, rsa_key):
+        from remediate_chain_entities import remediate
+        clean = _make_ca_cert(rsa_key, "Clean CA").strip()
+        with flask_app.app_context():
+            chain = CertChain(name="Remediate Clean")
+            db.session.add(chain)
+            db.session.commit()
+            ic = IntermediateCert(name="Clean", pem_data=clean, order=0, chain_id=chain.id)
+            db.session.add(ic)
+            db.session.commit()
+            ic_id = ic.id
+            repaired, unrepairable = remediate(apply=True)
+            assert all(f"id={ic_id} " not in r for r in repaired)
+            db.session.expire_all()
+            assert db.session.get(IntermediateCert, ic_id).pem_data == clean
+
+    def test_unrecoverable_row_reported_not_written(self, flask_app):
+        from remediate_chain_entities import remediate
+        garbage = "-----BEGIN CERTIFICATE-----&#10;not base64 at all&#10;-----END CERTIFICATE-----"
+        with flask_app.app_context():
+            chain = CertChain(name="Remediate Garbage")
+            db.session.add(chain)
+            db.session.commit()
+            ic = IntermediateCert(name="Garbage", pem_data=garbage, order=0, chain_id=chain.id)
+            db.session.add(ic)
+            db.session.commit()
+            ic_id = ic.id
+            repaired, unrepairable = remediate(apply=True)
+            assert any(f"id={ic_id} " in r for r in unrepairable)
+            assert all(f"id={ic_id} " not in r for r in repaired)
+            db.session.expire_all()
+            assert db.session.get(IntermediateCert, ic_id).pem_data == garbage  # not rewritten
