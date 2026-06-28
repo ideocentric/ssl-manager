@@ -2189,3 +2189,69 @@ class TestChainEntityRemediation:
             assert all(f"id={ic_id} " not in r for r in repaired)
             db.session.expire_all()
             assert db.session.get(IntermediateCert, ic_id).pem_data == garbage  # not rewritten
+
+
+# ---------------------------------------------------------------------------
+# Line-ending sanitization on import. Pasting a bundle into a <textarea> submits
+# it with CRLF (HTML form convention); a CRLF vendor bundle is the same shape.
+# Stored PEM must be LF so exports (fullchain.pem) stay clean.
+# ---------------------------------------------------------------------------
+class TestLineEndingNormalization:
+    def test_normalize_pem_converts_crlf_and_cr(self):
+        from app.crypto import normalize_pem
+        assert normalize_pem("a\r\nb\rc\n") == "a\nb\nc\n"
+        assert normalize_pem("") == ""
+        assert normalize_pem(None) is None
+
+    def test_parse_pem_bundle_strips_cr(self, rsa_key):
+        from app.crypto import parse_pem_bundle
+        crlf = _make_ca_cert(rsa_key, "CA").replace("\n", "\r\n")
+        blocks = parse_pem_bundle(crlf)
+        assert blocks and all("\r" not in b for b in blocks)
+        for b in blocks:
+            x509.load_pem_x509_certificate(b.encode())
+
+    def test_chain_import_normalizes_crlf_bundle(self, client, chain_record, rsa_key, flask_app):
+        crlf = _make_ca_cert(rsa_key, "Imported CRLF CA").replace("\n", "\r\n")
+        assert "\r\n" in crlf
+        client.post(f"/chains/{chain_record}/import",
+                    data={"pem_text": crlf}, follow_redirects=True)
+        with flask_app.app_context():
+            db.session.expire_all()
+            ics = IntermediateCert.query.filter_by(chain_id=chain_record).all()
+            assert ics, "CRLF bundle was not imported"
+            for ic in ics:
+                assert "\r" not in ic.pem_data
+                x509.load_pem_x509_certificate(ic.pem_data.encode())
+
+    def test_intermediate_add_normalizes_crlf(self, client, chain_record, rsa_key, flask_app):
+        crlf = _make_ca_cert(rsa_key, "Manual CRLF CA").replace("\n", "\r\n")
+        client.post(f"/chains/{chain_record}/intermediates",
+                    data={"name": "Manual CRLF CA", "pem_data": crlf, "order": "0"},
+                    follow_redirects=True)
+        with flask_app.app_context():
+            db.session.expire_all()
+            ic = IntermediateCert.query.filter_by(
+                chain_id=chain_record, name="Manual CRLF CA").first()
+            assert ic is not None
+            assert "\r" not in ic.pem_data
+            x509.load_pem_x509_certificate(ic.pem_data.encode())
+
+    def test_remediation_normalizes_existing_crlf_row(self, flask_app, rsa_key):
+        from remediate_chain_entities import remediate
+        crlf = _make_ca_cert(rsa_key, "Legacy CRLF").strip().replace("\n", "\r\n")
+        with flask_app.app_context():
+            chain = CertChain(name="Remediate CRLF")
+            db.session.add(chain)
+            db.session.commit()
+            ic = IntermediateCert(name="CRLF", pem_data=crlf, order=0, chain_id=chain.id)
+            db.session.add(ic)
+            db.session.commit()
+            ic_id = ic.id
+            repaired, unrepairable = remediate(apply=True)
+            assert any(f"id={ic_id} " in r for r in repaired)
+            assert not unrepairable
+            db.session.expire_all()
+            fixed = db.session.get(IntermediateCert, ic_id).pem_data
+            assert "\r" not in fixed
+            x509.load_pem_x509_certificate(fixed.encode())

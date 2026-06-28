@@ -13,7 +13,7 @@ from cryptography.x509.oid import NameOID
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
-from ..crypto import parse_pem_bundle, split_bundle_by_role
+from ..crypto import normalize_pem, parse_pem_bundle, split_bundle_by_role
 from ..extensions import db
 from ..models import Certificate, CertChain, IntermediateCert
 from ..security import _audit
@@ -130,7 +130,7 @@ def chain_intermediate_new(chain_id):
     """POST — Validate and save a new intermediate certificate to a chain."""
     chain = db.get_or_404(CertChain, chain_id)
     name     = _clean(request.form.get("name", ""), 256)
-    pem_data = (request.form.get("pem_data", "") or "").strip()
+    pem_data = normalize_pem(request.form.get("pem_data", "") or "").strip()
     try:
         order = max(0, int(request.form.get("order", 0)))
     except (ValueError, TypeError):
@@ -171,7 +171,7 @@ def chain_intermediate_update(chain_id, ic_id):
     chain = db.get_or_404(CertChain, chain_id)
     ic = db.get_or_404(IntermediateCert, ic_id)
     name     = _clean(request.form.get("name", ""), 256)
-    pem_data = (request.form.get("pem_data", "") or "").strip()
+    pem_data = normalize_pem(request.form.get("pem_data", "") or "").strip()
     try:
         order = max(0, int(request.form.get("order", 0)))
     except (ValueError, TypeError):
