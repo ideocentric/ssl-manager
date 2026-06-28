@@ -111,7 +111,7 @@
                     data-ic-edit="{{ url_for('chains.chain_intermediate_update', chain_id=chain.id, ic_id=ic.id) }}"
                     data-ic-name="{{ ic.name | e }}"
                     data-ic-order="{{ ic.order }}"
-                    data-ic-pem="{{ ic.pem_data | e | replace('\n', '&#10;') }}"
+                    data-ic-pem="{{ ic.pem_data }}"
                     data-ic-subject="{{ ic.subject | e }}"
                     data-ic-type="{{ 'root' if ic.is_root else 'intermediate' }}"
                     data-ic-expiry="{{ ic.expiry_date.strftime('%Y-%m-%d') if ic.expiry_date else '' }}">
