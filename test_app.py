@@ -1996,3 +1996,108 @@ class TestSmtpConfigRoute:
             "enabled": "1",
         }, follow_redirects=True)
         assert b"cannot both be enabled" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Regression: PEM newline encoding in the chain detail page (data-ic-pem)
+#
+# A buggy template filter — `{{ ic.pem_data | e | replace('\n', '&#10;') }}` —
+# ran replace() on a MarkupSafe Markup, which escaped the replacement's '&' to
+# '&amp;'. The attribute rendered as '...&amp;#10;...', which the browser decodes
+# to the LITERAL text '&#10;' instead of a newline. The edit modal then showed
+# corrupted PEM, and PEM copied out of it (e.g. into a chain file) was unusable.
+# These tests lock in the corrected encoding and block reintroduction.
+# ---------------------------------------------------------------------------
+class TestChainPemNewlineEncoding:
+    @staticmethod
+    def _extract_pem_attr(body):
+        import re
+        m = re.search(r'data-ic-pem="([^"]*)"', body)
+        assert m, "data-ic-pem attribute not found on chain detail page"
+        return m.group(1)
+
+    def test_data_ic_pem_decodes_to_valid_pem(self, client, intermediate_record):
+        """The rendered attribute, once HTML-decoded, must be real, loadable PEM."""
+        import html
+        _ic_id, chain_id = intermediate_record
+        body = client.get(f"/chains/{chain_id}").get_data(as_text=True)
+        raw_attr = self._extract_pem_attr(body)
+        # Hallmarks of the double-escape bug:
+        assert "&amp;" not in raw_attr, "ampersand double-escaped in data-ic-pem"
+        decoded = html.unescape(raw_attr)
+        assert "&#10;" not in decoded, "literal '&#10;' where newlines belong"
+        assert "\n" in decoded, "decoded PEM has no real newlines"
+        # What the edit modal would receive must parse as a certificate.
+        x509.load_pem_x509_certificate(decoded.encode())
+
+    def test_decoded_attr_matches_stored_pem(self, client, intermediate_record, flask_app):
+        """Decoding the attribute reproduces exactly what is stored in the DB."""
+        import html
+        ic_id, chain_id = intermediate_record
+        body = client.get(f"/chains/{chain_id}").get_data(as_text=True)
+        decoded = html.unescape(self._extract_pem_attr(body))
+        with flask_app.app_context():
+            db.session.expire_all()
+            stored = db.session.get(IntermediateCert, ic_id).pem_data
+        assert decoded == stored
+
+    def test_edit_modal_value_roundtrips_through_update(self, client, intermediate_record, flask_app):
+        """Saving the edit modal with its prefilled PEM is accepted and stays clean."""
+        import html
+        ic_id, chain_id = intermediate_record
+        body = client.get(f"/chains/{chain_id}").get_data(as_text=True)
+        pem_from_modal = html.unescape(self._extract_pem_attr(body))
+        resp = client.post(
+            f"/chains/{chain_id}/intermediates/{ic_id}/update",
+            data={"name": "Test CA", "pem_data": pem_from_modal, "order": "0"},
+            follow_redirects=True,
+        )
+        assert b"Invalid PEM" not in resp.data
+        with flask_app.app_context():
+            db.session.expire_all()
+            stored = db.session.get(IntermediateCert, ic_id).pem_data
+        assert "&#10;" not in stored
+        x509.load_pem_x509_certificate(stored.encode())
+
+    def test_fullchain_export_has_no_entity_artifacts(self, client, flask_app, rsa_key):
+        """Exported fullchain.pem contains clean, parseable PEM (no entity text)."""
+        import re
+        inter_pem = _make_ca_cert(rsa_key, domain="Intermediate CA")
+        key_pem_raw, csr_pem = generate_key_and_csr(
+            "exp.example.com", [], 1024, "US", "", "", "Test Org", "", "",
+        )
+        cert_key = serialization.load_pem_private_key(key_pem_raw.encode(), password=None)
+        leaf_pem = _make_self_signed_cert(cert_key, "exp.example.com")
+        with flask_app.app_context():
+            chain = CertChain(name="Export Chain")
+            db.session.add(chain)
+            db.session.commit()
+            db.session.add(IntermediateCert(
+                name="Intermediate CA", pem_data=inter_pem, order=0, chain_id=chain.id))
+            cert = Certificate(
+                domain="exp.example.com", san_domains="[]", key_size=1024,
+                private_key_pem=key_pem_raw, csr_pem=csr_pem, signed_cert_pem=leaf_pem,
+                status="active", chain_id=chain.id,
+            )
+            db.session.add(cert)
+            db.session.commit()
+            cert_id = cert.id
+        resp = client.get(f"/certificates/{cert_id}/download/fullchain")
+        assert resp.status_code == 200
+        text = resp.get_data(as_text=True)
+        assert "&#10;" not in text and "&amp;" not in text
+        blocks = re.findall(
+            r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", text, re.DOTALL)
+        assert blocks, "no certificate blocks in fullchain export"
+        for pem in blocks:
+            x509.load_pem_x509_certificate((pem + "\n").encode())
+
+    def test_no_double_escaped_newline_filter_in_templates(self):
+        """Guard against reintroducing the `| e | replace('\n','&#10;')` pattern."""
+        import pathlib
+        import re
+        tpl_dir = pathlib.Path(__file__).parent / "app" / "templates"
+        pattern = re.compile(
+            r"\|\s*e\s*\|\s*replace\(\s*['\"]\\n['\"]\s*,\s*['\"]&#10;['\"]")
+        offenders = [p.name for p in tpl_dir.glob("*.html") if pattern.search(p.read_text())]
+        assert not offenders, f"buggy newline-entity filter still present in: {offenders}"
