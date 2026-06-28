@@ -7,7 +7,9 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [Unreleased]
+## [1.0.0] — 2026-06-28
+
+Initial production release.
 
 ### Added
 
@@ -35,12 +37,6 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Certificate chain intermediate PEM no longer displays as literal `&#10;` instead of line breaks. The edit modal's PEM attribute was double-escaped (`| e | replace('\n','&#10;')` on a MarkupSafe value produced `&amp;#10;`, which the browser decoded to the literal text `&#10;`); stored data was never affected.
 - PEM line endings are normalized to LF on import. Pasting a bundle into a text area submits it with CRLF (HTML form convention), which was stored verbatim and surfaced as stray characters in exported `fullchain.pem`. Imports (paste and file upload) now store LF; `remediate_chain_entities.py --apply` cleans rows saved before this fix.
 - The Docker image now includes `seed_design.py`, so the design-seed Compose overlay (`docker-compose.design.yml`) runs without a manual file copy.
-
----
-
-## [1.0.0] — 2026-03-16
-
-Initial production release.
 
 ### Certificate Management
 
