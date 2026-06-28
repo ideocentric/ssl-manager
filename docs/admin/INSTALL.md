@@ -1096,7 +1096,7 @@ sudo bash install-rhel.sh --upgrade     # RHEL-family
 
 ### Version history and migration notes
 
-#### Current release — Expiry notifications, platform support, installer & chain-PEM hygiene
+#### v1.1.0 — 2026-06-28 — Expiry notifications, platform support, installer & chain-PEM hygiene
 
 No manual steps required on upgrade (one optional cleanup for older installs — see *Chain PEM hygiene* below).
 
@@ -1123,50 +1123,16 @@ No manual steps required on upgrade (one optional cleanup for older installs —
 **Schema migrations (automatic):**
 - `notification_config` — new table created to store expiry-notification settings.
 
-#### Smart bundle import
+#### v1.0.0 — 2026-03-16 — Initial release
 
-Added in a prior update. No manual steps required on upgrade.
+The first tagged release. On a fresh install all schema is created automatically — no manual steps. Capabilities included:
 
-**New features:**
-- **Smart P12/PFX import** — uploading a `.p12` or `.pfx` file now shows a live File Analysis preview (key type, certificate CN, expiry, detected intermediates, chain action) before import is confirmed.
-- **Keypair import** — a new Import Private Key + Certificate flow accepts a separate PEM key and certificate (or bundle, including P7B). Live preview confirms key/certificate match before import.
-- **Smart bundle upload** — uploading a signed certificate via the Certificate Detail page now performs role-based detection: the leaf certificate is identified by its CA flag, intermediates are split out and deduplicated against the assigned chain. P7B bundles are supported.
-- **Security update** — `cryptography` library updated to 46.0.7 (addresses CVE-2025-61727).
-
-#### v1.2 — Password reset and SMTP
-
-**New features:**
-- **Password reset by email** — users can request a password reset link from the login page. Requires SMTP to be configured (see [Configure Email](#configure-email-optional)).
-- **Microsoft 365 and Google OAuth** — SMTP authentication via OAuth 2.0, removing the need to store an application password.
-- **Automatic session invalidation** — changing a user's password immediately invalidates all existing sessions for that account.
-- **15-minute idle timeout** — unauthenticated sessions are invalidated after 15 minutes of inactivity.
-
-**Schema migrations (automatic):**
-- `user.session_version` — integer column added to support session invalidation on password change.
-- `smtp_config.*` — new table (and additional OAuth columns) created to store SMTP configuration.
-
-**Upgrade action required:** None — migrations run automatically on first start after upgrade.
-
-#### v1.1 — Certificate Authorities (internal CA)
-
-**New features:**
-- **Internal CA module** — create self-signed root CAs entirely within SSL Manager and use them to sign pending certificates without an external CA portal.
-- **Certificate Profiles** — reusable templates for CSR subject fields (organisation, country, key size, etc.).
-- **Named Certificate Chains** — intermediate certificates are now grouped into named chains that can be shared across multiple certificates.
-- **Import CSR** — import an externally generated CSR (from a network appliance, load balancer, etc.) as a pending certificate record.
-
-**Schema migrations (automatic):**
-- `cert_chain` — new table for named certificate chains.
-- `intermediate_cert.chain_id` — foreign key added to link intermediates to a chain.
-- `certificate.chain_id` — foreign key added to link certificates to a chain.
-- `certificate.profile_id` — foreign key added to link certificates to a profile.
-- `settings.name` / `settings.is_default` — columns added to support named profiles.
-
-**Upgrade action required:** None — all migrations and data backfills run automatically on first start. Existing intermediates are migrated into a "Default Chain" automatically.
-
-#### v1.0 — Initial release
-
-Base feature set: certificate lifecycle management (generate key + CSR, upload signed cert), intermediate certificate management, user accounts, audit log, daily backup timer.
+- **Certificate lifecycle** — generate key + CSR, upload signed certificates, renew / rekey, import external CSRs, and intermediate certificate management.
+- **Internal Certificate Authority** — create self-signed root CAs and sign pending certificates; reusable certificate profiles; named certificate chains shareable across certificates.
+- **Email & accounts** — password reset by email; SMTP with Microsoft 365 and Google OAuth; automatic session invalidation on password change; 15-minute idle timeout for unauthenticated sessions.
+- **Smart import** — smart P12/PFX import with a live File Analysis preview; keypair (private key + certificate/bundle, including P7B) import; role-based smart bundle upload that splits and deduplicates intermediates.
+- **Operations** — role-based user accounts, audit log, and a daily backup timer.
+- **Security** — bundled `cryptography` 46.0.7 (addresses CVE-2025-61727).
 
 ---
 
