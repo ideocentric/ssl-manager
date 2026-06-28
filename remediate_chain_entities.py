@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
 # ==============================================================================
 # FILE:           remediate_chain_entities.py
-# DESCRIPTION:    Repair certificate-chain PEM corrupted by HTML-entity escaping
-#                 (e.g. literal '&#10;' instead of newlines) on installs that ran
-#                 a build predating the data-ic-pem render fix.
+# DESCRIPTION:    Clean stored chain PEM corrupted by HTML-entity escaping (literal
+#                 '&#10;') and/or CRLF line endings, on installs that ran a build
+#                 predating the import-sanitization fixes.
 #
 # LICENSE:        GNU Affero General Public License v3.0 (AGPL-3.0)
 #                 Copyright (C) 2026  Matt Comeione / ideocentric
 # ==============================================================================
 """
-An earlier build rendered chain intermediate PEM into an HTML attribute with a
-filter that double-escaped newlines, so the edit modal could persist PEM in
-which real newlines had become the literal text '&#10;' (and '&' -> '&amp;').
-Such a value is not loadable as a certificate and leaks into exported
-fullchain.pem files. The render bug is fixed in app/templates/chain_detail.html,
-but rows that were already saved corrupted stay corrupted — this tool repairs
-them in place.
+Two legacy artifacts could end up in stored chain PEM:
+  1. HTML-entity escaping — an earlier build rendered intermediate PEM into an
+     HTML attribute with a filter that double-escaped newlines, so the edit modal
+     could persist PEM where newlines became the literal text '&#10;'.
+  2. CRLF line endings — pasting a bundle into a <textarea> submits it with CRLF
+     (HTML form convention), and CRLF certs leak '\\r' into exported fullchain.pem
+     files (visible as stray characters in some editors).
 
-It only rewrites rows that DO NOT currently parse as a certificate but DO parse
-once HTML entities are decoded. Clean rows are left untouched, and rows that are
-broken for any other reason are reported, never rewritten.
+Both are fixed at the source now (parse_pem_bundle / the import routes normalize
+to LF, and the render bug is fixed), but rows already stored stay dirty — this
+tool cleans them in place.
+
+It rewrites a row only when normalizing (entity-decode + CRLF->LF + trim) changes
+it AND the result still parses as a certificate. Already-clean rows are left
+untouched, and rows that change but no longer parse are reported, never rewritten.
 
 Run on the server, with the same environment the service uses. Take a database
 backup first, and run this AFTER upgrading so the render fix is in place and
@@ -97,11 +101,15 @@ def _parses(pem: str) -> bool:
 
 
 def remediate(apply: bool = False, include_leaf: bool = False):
-    """Scan and (optionally) repair entity-corrupted PEM. Runs in an app context.
+    """Scan and (optionally) clean stored chain PEM. Runs in an app context.
 
-    Only rewrites a row when it fails to parse as stored but parses after entity
-    decoding. Returns (repaired, unrepairable) lists of human-readable labels.
+    Cleans two legacy artifacts: HTML-entity escaping (literal '&#10;') and CRLF
+    line endings (from textarea form submission or a CRLF vendor bundle). A row
+    is rewritten only when normalizing changes it AND the result still parses as
+    a certificate; rows that change but no longer parse are reported, never
+    rewritten. Returns (repaired, unrepairable) lists of human-readable labels.
     """
+    from app.crypto import normalize_pem
     from app.extensions import db
     from app.models import AuditLog, Certificate, IntermediateCert
 
@@ -121,9 +129,10 @@ def remediate(apply: bool = False, include_leaf: bool = False):
             pem = getattr(row, column) or ""
             if not pem.strip():
                 continue
-            if _parses(pem):
-                continue  # already clean — never touched
-            fixed = decode_entities(pem).strip()
+            # Decode HTML entities, then normalize CRLF/CR -> LF, then trim.
+            fixed = normalize_pem(decode_entities(pem)).strip()
+            if fixed == pem:
+                continue  # already clean (LF, no entities, trimmed)
             if not _parses(fixed):
                 unrepairable.append(label(row))
                 continue

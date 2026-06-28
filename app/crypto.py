@@ -229,11 +229,27 @@ def parse_cert_expiry(cert_pem):
     return exp
 
 
+def normalize_pem(text):
+    """Normalize PEM text to LF line endings.
+
+    Browsers submit <textarea> content with CRLF line breaks (HTML form
+    convention), and some vendor bundles ship CRLF/CR. Storing LF keeps the
+    database and every text export (fullchain.pem, chain.pem) consistent.
+    No-op on already-LF or empty input.
+    """
+    if not text:
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def parse_pem_bundle(text):
     """Split a concatenated PEM bundle into a list of individual PEM strings.
 
-    Raises ValueError if no valid certificates are found.
+    Line endings are normalized to LF first, so a bundle pasted into a textarea
+    (CRLF) or shipped by a vendor as CRLF is stored consistently. Raises
+    ValueError if no valid certificates are found.
     """
+    text = normalize_pem(text)
     pattern = re.compile(
         r"(-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----)",
         re.MULTILINE,
