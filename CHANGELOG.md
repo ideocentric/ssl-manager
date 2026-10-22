@@ -7,6 +7,14 @@ SSL Manager uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- PKCS#12 export has a **Legacy encryption (3DES / SHA-1)** checkbox, off by default. It writes the bundle with PBE-SHA1-3DES for both the key and certificate bags and a SHA-1 MAC (equivalent to `openssl pkcs12 -export -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1`), for Windows Server 2012 R2 / 2016, which cannot import the default AES-256 bundles. The audit log records `legacy=3des-sha1` when it is used.
+
+---
+
 ## [1.1.0] — 2026-06-28
 
 ### Added

@@ -983,14 +983,17 @@ def download_pkcs12(cert_id):
         return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
     password      = request.form.get("password", "")
     friendly_name = request.form.get("friendly_name", "").strip() or normalize_alias(cert.domain)
+    legacy        = request.form.get("legacy") == "1"
     intermediates = get_chain_intermediates(cert.chain_id)
     try:
         p12_bytes = create_pkcs12(cert.signed_cert_pem, cert.private_key_pem,
-                                   [ic.pem_data for ic in intermediates], password, name=friendly_name)
+                                   [ic.pem_data for ic in intermediates], password, name=friendly_name,
+                                   legacy=legacy)
     except Exception as e:
         flash(f"Error creating PKCS#12: {e}", "error")
         return redirect(url_for("certificates.certificate_detail", cert_id=cert_id))
-    _audit("download_pkcs12", "certificate", cert_id, "success", f"domain={cert.domain!r}")
+    _audit("download_pkcs12", "certificate", cert_id, "success",
+           f"domain={cert.domain!r}" + (" legacy=3des-sha1" if legacy else ""))
     return send_file(BytesIO(p12_bytes), mimetype="application/x-pkcs12", as_attachment=True,
                      download_name=f"{cert.safe_domain}.p12")
 
