@@ -609,6 +609,8 @@ A password-protected bundle containing the private key, certificate, and chain i
 
 Use for: **Windows IIS**, Azure App Service, F5 BIG-IP, and any platform that imports a PFX file.
 
+**Legacy encryption (3DES / SHA-1):** off by default. By default the bundle is encrypted with AES-256 and a SHA-256 MAC, which **Windows Server 2012 R2 and 2016** cannot import (the import fails with a password error even when the password is correct). Tick this box to produce a bundle encrypted with PBE-SHA1-3DES and a SHA-1 MAC instead, the same as `openssl pkcs12 -export -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1`. Use it only for systems that need it; the default is stronger.
+
 ### Java KeyStore (JKS)
 
 **Button:** Download .jks

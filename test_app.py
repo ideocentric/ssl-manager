@@ -41,6 +41,7 @@
 import importlib.util
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from io import BytesIO
@@ -407,6 +408,37 @@ class TestCreatePkcs12:
         """Bad intermediate PEMs should be skipped, not crash."""
         result = create_pkcs12(signed_cert_pem, key_pem, ["not a cert", ""], "pass")
         assert isinstance(result, bytes)
+
+    # DER-encoded algorithm OIDs, to check what the bundle is actually encrypted with
+    OID_PBE_SHA1_3DES = bytes.fromhex("060a2a864886f70d010c0103")  # 1.2.840.113549.1.12.1.3
+    OID_PBES2 = bytes.fromhex("06092a864886f70d01050d")             # 1.2.840.113549.1.5.13
+    OID_SHA1 = bytes.fromhex("06052b0e03021a")                       # 1.3.14.3.2.26
+
+    def test_default_uses_pbes2(self, rsa_key, signed_cert_pem, key_pem):
+        result = create_pkcs12(signed_cert_pem, key_pem, [], "pass")
+        assert self.OID_PBES2 in result
+        assert self.OID_PBE_SHA1_3DES not in result
+
+    def test_legacy_uses_3des_and_sha1_mac(self, rsa_key, signed_cert_pem, key_pem):
+        result = create_pkcs12(signed_cert_pem, key_pem, [], "pass", legacy=True)
+        assert self.OID_PBE_SHA1_3DES in result
+        assert self.OID_PBES2 not in result
+        assert self.OID_SHA1 in result
+
+    def test_legacy_loadable_with_chain(self, rsa_key, signed_cert_pem, key_pem):
+        intermediate_key = _make_rsa_key(1024)
+        intermediate_pem = _make_self_signed_cert(intermediate_key, "ca.example.com")
+        result = create_pkcs12(signed_cert_pem, key_pem, [intermediate_pem], "pass",
+                               name="example", legacy=True)
+        p12 = pkcs12.load_pkcs12(result, b"pass")
+        assert p12.key is not None
+        assert p12.cert.friendly_name == b"example"
+        assert len(p12.additional_certs) == 1
+
+    def test_legacy_without_password_is_unencrypted(self, rsa_key, signed_cert_pem, key_pem):
+        result = create_pkcs12(signed_cert_pem, key_pem, [], "", legacy=True)
+        key, cert, _ = pkcs12.load_key_and_certificates(result, None)
+        assert key is not None and cert is not None
 
 
 class TestCreateComponentsZip:
@@ -783,6 +815,28 @@ class TestDownloadPkcs12:
                            data={"password": "mypassword"})
         key, cert, _ = pkcs12.load_key_and_certificates(resp.data, b"mypassword")
         assert cert is not None
+
+    def test_legacy_checkbox(self, client, cert_record):
+        resp = client.post(f"/certificates/{cert_record}/download/pkcs12",
+                           data={"password": "mypassword", "legacy": "1"})
+        assert resp.status_code == 200
+        assert TestCreatePkcs12.OID_PBE_SHA1_3DES in resp.data
+        key, cert, _ = pkcs12.load_key_and_certificates(resp.data, b"mypassword")
+        assert cert is not None
+
+    def test_legacy_off_by_default(self, client, cert_record):
+        resp = client.post(f"/certificates/{cert_record}/download/pkcs12",
+                           data={"password": "mypassword"})
+        assert TestCreatePkcs12.OID_PBE_SHA1_3DES not in resp.data
+
+    @pytest.mark.parametrize("suffix", ["", "/modal"])
+    def test_legacy_checkbox_rendered_unchecked(self, client, cert_record, suffix):
+        resp = client.get(f"/certificates/{cert_record}{suffix}")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        tag = re.search(r'<input[^>]*name="legacy"[^>]*>', html)
+        assert tag is not None
+        assert "checked" not in tag.group(0)
 
     def test_unsigned_cert_redirects(self, client):
         resp = client.post("/certificates/new", data={

@@ -691,6 +691,7 @@ SSLCACertificateFile  /etc/pki/tls/certs/www.example.com/chain.pem
 
 **Button:** Download .p12
 **Field:** Password (optional but strongly recommended)
+**Option:** Legacy encryption (3DES / SHA-1), off by default; for Windows Server 2012 R2 / 2016, which reject the default AES-256 bundles
 **Filename:** `www.example.com.p12`
 
 Contains: private key + certificate + chain in a single encrypted file.

@@ -408,8 +408,15 @@ def get_key_info(private_key_pem):
 # Bundle creation
 # ---------------------------------------------------------------------------
 
-def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password, name=None):
-    """Create PKCS#12 bundle. Returns bytes."""
+def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password, name=None, legacy=False):
+    """Create PKCS#12 bundle. Returns bytes.
+
+    ``legacy=True`` encrypts with PBE-SHA1-3DES and a SHA-1 MAC, the
+    equivalent of ``openssl pkcs12 -export -certpbe PBE-SHA1-3DES
+    -keypbe PBE-SHA1-3DES -macalg sha1``. Older Windows (Server 2012 R2,
+    2016) cannot import the default AES-256/PBES2 bundles. Ignored when
+    there is no password, since the bundle is then unencrypted.
+    """
     cert = x509.load_pem_x509_certificate(cert_pem.encode())
     key = serialization.load_pem_private_key(key_pem.encode(), password=None)
 
@@ -426,12 +433,25 @@ def create_pkcs12(cert_pem, key_pem, intermediates_pem_list, password, name=None
     if isinstance(name, str):
         name = name.encode()
 
+    if not password:
+        encryption = serialization.NoEncryption()
+    elif legacy:
+        encryption = (
+            serialization.PrivateFormat.PKCS12.encryption_builder()
+            .kdf_rounds(2048)
+            .key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC)
+            .hmac_hash(hashes.SHA1())
+            .build(password)
+        )
+    else:
+        encryption = serialization.BestAvailableEncryption(password)
+
     return pkcs12.serialize_key_and_certificates(
         name=name,
         key=key,
         cert=cert,
         cas=cas if cas else None,
-        encryption_algorithm=serialization.BestAvailableEncryption(password) if password else serialization.NoEncryption(),
+        encryption_algorithm=encryption,
     )
 
 
